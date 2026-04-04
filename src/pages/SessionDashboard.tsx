@@ -3,9 +3,11 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useSessionStore } from "../store/sessionStore";
 import AssetBrowser from "../components/AssetBrowser";
 import NotesPanel from "../components/NotesPanel";
+import SoundboardPanel from "../components/SoundboardPanel";
+import DisplayPanel from "../components/DisplayPanel";
 import type { Session } from "../lib/types";
 
-type Tab = "assets" | "notes";
+type Tab = "assets" | "notes" | "soundboard" | "display";
 
 export default function SessionDashboard() {
   const { id } = useParams<{ id: string }>();
@@ -40,6 +42,8 @@ export default function SessionDashboard() {
   const tabs: { key: Tab; label: string; icon: string }[] = [
     { key: "assets", label: "Assets", icon: "🗃" },
     { key: "notes", label: "Notas", icon: "📝" },
+    { key: "soundboard", label: "Sonidos", icon: "🎵" },
+    { key: "display", label: "Proyección", icon: "🖥" },
   ];
 
   return (
@@ -117,6 +121,8 @@ export default function SessionDashboard() {
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === "assets" && <AssetBrowser sessionId={id} />}
         {activeTab === "notes" && <NotesPanel sessionId={id} />}
+        {activeTab === "soundboard" && <SoundboardPanel sessionId={id} />}
+        {activeTab === "display" && <DisplayPanel sessionId={id} />}
       </div>
     </div>
   );
