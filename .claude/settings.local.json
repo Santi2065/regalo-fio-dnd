@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(npm --version)",
+      "Bash(rustup default:*)",
+      "Bash(npx --version)",
+      "Bash(npm create:*)",
+      "Bash(cp:*)",
+      "Bash(npm install:*)",
+      "Bash(cargo check:*)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}
