@@ -6,9 +6,10 @@ import NotesPanel from "../components/NotesPanel";
 import SoundboardPanel from "../components/SoundboardPanel";
 import DisplayPanel from "../components/DisplayPanel";
 import GuionEditor from "../components/GuionEditor";
+import InitiativeTracker from "../components/InitiativeTracker";
 import type { Session } from "../lib/types";
 
-type Tab = "guion" | "assets" | "notes" | "soundboard" | "display";
+type Tab = "guion" | "assets" | "notes" | "soundboard" | "display" | "initiative";
 
 export default function SessionDashboard() {
   const { id } = useParams<{ id: string }>();
@@ -46,6 +47,7 @@ export default function SessionDashboard() {
     { key: "notes",      label: "Notas",      icon: "📝" },
     { key: "soundboard", label: "Soundboard", icon: "🎵" },
     { key: "display",    label: "Proyección", icon: "🖥" },
+    { key: "initiative", label: "Iniciativa",  icon: "⚔", hint: "Orden de combate" },
   ];
 
   return (
@@ -120,6 +122,7 @@ export default function SessionDashboard() {
         {activeTab === "notes"      && <NotesPanel sessionId={id} />}
         {activeTab === "soundboard" && <SoundboardPanel sessionId={id} />}
         {activeTab === "display"    && <DisplayPanel sessionId={id} />}
+        {activeTab === "initiative" && <InitiativeTracker />}
       </div>
     </div>
   );

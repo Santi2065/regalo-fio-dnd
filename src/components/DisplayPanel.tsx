@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Asset } from "../lib/types";
+import FogPainter from "./FogPainter";
 
 interface MonitorInfo {
   name: string;
@@ -23,6 +24,7 @@ export default function DisplayPanel({ sessionId }: Props) {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [currentScene, setCurrentScene] = useState<Asset | null>(null);
   const [filterType, setFilterType] = useState<"all" | "image" | "video">("all");
+  const [rightTab, setRightTab] = useState<"scenes" | "fog">("scenes");
 
   const refresh = useCallback(async () => {
     const [mons, isOpen, imageAssets, videoAssets] = await Promise.all([
@@ -182,53 +184,91 @@ export default function DisplayPanel({ sessionId }: Props) {
         )}
       </div>
 
-      {/* Right: asset grid */}
+      {/* Right: tabs (scenes / fog of war) */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center gap-2 px-6 py-3 border-b border-stone-800 flex-shrink-0">
-          <span className="text-sm text-stone-400">Mostrar:</span>
-          {(["all", "image", "video"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setFilterType(t)}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                filterType === t
-                  ? "bg-amber-700 text-white"
-                  : "bg-stone-800 text-stone-400 hover:text-stone-200"
-              }`}
-            >
-              {t === "all" ? "Todo" : t === "image" ? "🖼 Imágenes" : "🎬 Video"}
-            </button>
-          ))}
-          <p className="ml-auto text-xs text-stone-600">
-            Click para proyectar
-          </p>
-        </div>
+        {/* Tab bar */}
+        <div className="flex border-b border-stone-800 flex-shrink-0">
+          <button
+            onClick={() => setRightTab("scenes")}
+            className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              rightTab === "scenes"
+                ? "border-amber-500 text-amber-400"
+                : "border-transparent text-stone-400 hover:text-stone-200"
+            }`}
+          >
+            🖼 Escenas
+          </button>
+          <button
+            onClick={() => setRightTab("fog")}
+            disabled={!currentScene || currentScene.asset_type !== "image"}
+            className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px disabled:opacity-40 disabled:cursor-not-allowed ${
+              rightTab === "fog"
+                ? "border-indigo-500 text-indigo-400"
+                : "border-transparent text-stone-400 hover:text-stone-200"
+            }`}
+            title={!currentScene ? "Proyectá una imagen primero" : undefined}
+          >
+            🌫 Niebla de guerra
+          </button>
 
-        <div className="flex-1 overflow-y-auto p-4">
-          {!displayOpen ? (
-            <div className="text-center py-16 text-stone-600 text-sm">
-              Abrí la pantalla de proyección primero
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="text-4xl mb-2">📭</div>
-              <p className="text-stone-500 text-sm">
-                Sin imágenes o videos. Importá assets desde la pestaña Assets.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
-              {filtered.map((asset) => (
-                <DisplayAssetCard
-                  key={asset.id}
-                  asset={asset}
-                  isActive={currentScene?.id === asset.id}
-                  onProject={() => handleProject(asset)}
-                />
+          {rightTab === "scenes" && (
+            <div className="ml-auto flex items-center gap-2 px-4">
+              {(["all", "image", "video"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setFilterType(t)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    filterType === t
+                      ? "bg-amber-700 text-white"
+                      : "bg-stone-800 text-stone-400 hover:text-stone-200"
+                  }`}
+                >
+                  {t === "all" ? "Todo" : t === "image" ? "Imágenes" : "Video"}
+                </button>
               ))}
+              <span className="text-xs text-stone-600 ml-1">Click = proyectar</span>
             </div>
           )}
         </div>
+
+        {/* Scenes tab */}
+        {rightTab === "scenes" && (
+          <div className="flex-1 overflow-y-auto p-4">
+            {!displayOpen ? (
+              <div className="text-center py-16 text-stone-600 text-sm">
+                Abrí la pantalla de proyección primero
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="text-center py-16">
+                <div className="text-4xl mb-2">📭</div>
+                <p className="text-stone-500 text-sm">
+                  Sin imágenes o videos. Importá assets desde la pestaña Assets.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+                {filtered.map((asset) => (
+                  <DisplayAssetCard
+                    key={asset.id}
+                    asset={asset}
+                    isActive={currentScene?.id === asset.id}
+                    onProject={() => {
+                      handleProject(asset);
+                      if (asset.asset_type === "image") setRightTab("fog");
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Fog of War tab */}
+        {rightTab === "fog" && currentScene && currentScene.asset_type === "image" && (
+          <div className="flex-1 min-h-0 p-4 flex flex-col">
+            <FogPainter scene={currentScene} />
+          </div>
+        )}
       </div>
     </div>
   );
