@@ -5,16 +5,17 @@ import AssetBrowser from "../components/AssetBrowser";
 import NotesPanel from "../components/NotesPanel";
 import SoundboardPanel from "../components/SoundboardPanel";
 import DisplayPanel from "../components/DisplayPanel";
+import GuionEditor from "../components/GuionEditor";
 import type { Session } from "../lib/types";
 
-type Tab = "assets" | "notes" | "soundboard" | "display";
+type Tab = "guion" | "assets" | "notes" | "soundboard" | "display";
 
 export default function SessionDashboard() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { sessions, fetchSessions, updateSession } = useSessionStore();
   const [session, setSession] = useState<Session | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("assets");
+  const [activeTab, setActiveTab] = useState<Tab>("guion");
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
 
@@ -39,11 +40,12 @@ export default function SessionDashboard() {
     setEditing(false);
   };
 
-  const tabs: { key: Tab; label: string; icon: string }[] = [
-    { key: "assets", label: "Assets", icon: "🗃" },
-    { key: "notes", label: "Notas", icon: "📝" },
-    { key: "soundboard", label: "Sonidos", icon: "🎵" },
-    { key: "display", label: "Proyección", icon: "🖥" },
+  const tabs: { key: Tab; label: string; icon: string; hint?: string }[] = [
+    { key: "guion",      label: "Guión",      icon: "📜", hint: "El eje de la sesión" },
+    { key: "assets",     label: "Assets",     icon: "🗃" },
+    { key: "notes",      label: "Notas",      icon: "📝" },
+    { key: "soundboard", label: "Soundboard", icon: "🎵" },
+    { key: "display",    label: "Proyección", icon: "🖥" },
   ];
 
   return (
@@ -53,7 +55,7 @@ export default function SessionDashboard() {
         <div className="px-6 py-3 flex items-center gap-3">
           <button
             onClick={() => navigate("/")}
-            className="text-stone-400 hover:text-stone-200 text-sm transition-colors flex items-center gap-1"
+            className="text-stone-400 hover:text-stone-200 text-sm transition-colors"
           >
             ‹ Sesiones
           </button>
@@ -68,17 +70,10 @@ export default function SessionDashboard() {
                 className="bg-stone-800 border border-amber-600 rounded px-2 py-1 text-stone-100 text-sm focus:outline-none min-w-0 flex-1 max-w-xs"
                 onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
               />
-              <button
-                type="submit"
-                className="bg-amber-700 hover:bg-amber-600 text-white px-3 py-1 rounded text-sm transition-colors"
-              >
+              <button type="submit" className="bg-amber-700 hover:bg-amber-600 text-white px-3 py-1 rounded text-sm transition-colors">
                 Guardar
               </button>
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                className="text-stone-500 hover:text-stone-300 text-sm transition-colors"
-              >
+              <button type="button" onClick={() => setEditing(false)} className="text-stone-500 hover:text-stone-300 text-sm transition-colors">
                 Cancelar
               </button>
             </form>
@@ -105,6 +100,7 @@ export default function SessionDashboard() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
+              title={tab.hint}
               className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
                 activeTab === tab.key
                   ? "border-amber-500 text-amber-400"
@@ -119,10 +115,11 @@ export default function SessionDashboard() {
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {activeTab === "assets" && <AssetBrowser sessionId={id} />}
-        {activeTab === "notes" && <NotesPanel sessionId={id} />}
+        {activeTab === "guion"      && <GuionEditor sessionId={id} />}
+        {activeTab === "assets"     && <AssetBrowser sessionId={id} />}
+        {activeTab === "notes"      && <NotesPanel sessionId={id} />}
         {activeTab === "soundboard" && <SoundboardPanel sessionId={id} />}
-        {activeTab === "display" && <DisplayPanel sessionId={id} />}
+        {activeTab === "display"    && <DisplayPanel sessionId={id} />}
       </div>
     </div>
   );

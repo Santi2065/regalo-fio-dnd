@@ -69,6 +69,13 @@ pub fn init(conn: &Connection) -> Result<()> {
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
             FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS guion (
+            session_id TEXT PRIMARY KEY,
+            content TEXT DEFAULT '',
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
         ",
     )?;
 

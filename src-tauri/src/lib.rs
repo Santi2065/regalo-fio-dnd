@@ -2,6 +2,7 @@ mod assets;
 mod audio;
 mod db;
 mod display;
+mod guion;
 mod notes;
 mod session;
 
@@ -14,8 +15,6 @@ pub struct AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let conn = db::open().expect("Failed to open database");
-
-    // Initialize audio engine eagerly so the first sound plays without delay
     audio::init_audio();
 
     tauri::Builder::default()
@@ -41,6 +40,9 @@ pub fn run() {
             notes::create_note,
             notes::update_note,
             notes::delete_note,
+            // Guión
+            guion::get_guion,
+            guion::save_guion,
             // Audio
             audio::play_sfx,
             audio::play_ambient,
