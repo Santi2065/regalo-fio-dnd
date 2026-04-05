@@ -15,9 +15,10 @@ interface MonitorInfo {
 
 interface Props {
   sessionId: string;
+  compact?: boolean;
 }
 
-export default function DisplayPanel({ sessionId }: Props) {
+export default function DisplayPanel({ sessionId, compact = false }: Props) {
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [selectedMonitor, setSelectedMonitor] = useState<MonitorInfo | null>(null);
   const [displayOpen, setDisplayOpen] = useState(false);
@@ -84,6 +85,119 @@ export default function DisplayPanel({ sessionId }: Props) {
   const filtered = assets.filter((a) =>
     filterType === "all" ? true : a.asset_type === filterType
   );
+
+  if (compact) {
+    return (
+      <div className="flex flex-col h-full">
+        {/* Monitor + open/close controls */}
+        <div className="px-3 py-2 border-b border-stone-800 flex-shrink-0 space-y-2">
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedMonitor?.name ?? ""}
+              onChange={(e) => {
+                const m = monitors.find((mon) => mon.name === e.target.value);
+                if (m) setSelectedMonitor(m);
+              }}
+              className="flex-1 bg-stone-800 border border-stone-700 rounded px-2 py-1 text-xs text-stone-200 focus:outline-none focus:border-amber-500 min-w-0"
+            >
+              {monitors.length === 0 && <option value="">Sin monitores</option>}
+              {monitors.map((m) => (
+                <option key={m.name} value={m.name}>
+                  {m.name} ({m.width}×{m.height}){m.is_primary ? " — Principal" : ""}
+                </option>
+              ))}
+            </select>
+            {!displayOpen ? (
+              <button
+                onClick={handleOpenDisplay}
+                disabled={!selectedMonitor}
+                className="flex-shrink-0 bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white px-2 py-1 rounded text-xs font-medium transition-colors"
+              >
+                🖥 Abrir
+              </button>
+            ) : (
+              <button
+                onClick={handleCloseDisplay}
+                className="flex-shrink-0 bg-stone-700 hover:bg-stone-600 text-stone-300 px-2 py-1 rounded text-xs transition-colors"
+              >
+                Cerrar
+              </button>
+            )}
+          </div>
+
+          {displayOpen && (
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+              <span className="text-xs text-green-400 flex-1">Activa</span>
+              {currentScene && (
+                <span className="text-xs text-stone-500 truncate max-w-[120px]">{currentScene.name}</span>
+              )}
+              <button onClick={handleClear} className="text-xs text-stone-600 hover:text-stone-300 transition-colors flex-shrink-0">
+                Limpiar
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Tab bar: scenes / fog */}
+        <div className="flex border-b border-stone-800 flex-shrink-0">
+          <button
+            onClick={() => setRightTab("scenes")}
+            className={`flex-1 py-2 text-xs font-medium transition-colors border-b-2 ${rightTab === "scenes" ? "border-amber-500 text-amber-400" : "border-transparent text-stone-500 hover:text-stone-300"}`}
+          >
+            🖼 Escenas
+          </button>
+          <button
+            onClick={() => setRightTab("fog")}
+            disabled={!currentScene || currentScene.asset_type !== "image"}
+            className={`flex-1 py-2 text-xs font-medium transition-colors border-b-2 disabled:opacity-40 disabled:cursor-not-allowed ${rightTab === "fog" ? "border-indigo-500 text-indigo-400" : "border-transparent text-stone-500 hover:text-stone-300"}`}
+          >
+            🌫 Niebla
+          </button>
+          {rightTab === "scenes" && (
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as typeof filterType)}
+              className="bg-transparent border-l border-stone-800 text-xs text-stone-500 px-2 focus:outline-none"
+            >
+              <option value="all">Todo</option>
+              <option value="image">Imágenes</option>
+              <option value="video">Video</option>
+            </select>
+          )}
+        </div>
+
+        {/* Scenes */}
+        {rightTab === "scenes" && (
+          <div className="flex-1 overflow-y-auto p-2">
+            {!displayOpen ? (
+              <p className="text-stone-600 text-xs text-center py-8">Abrí la pantalla primero</p>
+            ) : filtered.length === 0 ? (
+              <p className="text-stone-600 text-xs text-center py-8">Sin imágenes/videos</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {filtered.map((asset) => (
+                  <DisplayAssetCard
+                    key={asset.id}
+                    asset={asset}
+                    isActive={currentScene?.id === asset.id}
+                    onProject={() => { handleProject(asset); if (asset.asset_type === "image") setRightTab("fog"); }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Fog */}
+        {rightTab === "fog" && currentScene && currentScene.asset_type === "image" && (
+          <div className="flex-1 min-h-0 p-2 flex flex-col">
+            <FogPainter scene={currentScene} />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full">

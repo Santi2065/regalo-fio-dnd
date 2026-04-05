@@ -24,7 +24,11 @@ function formatMs(ms: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-export default function SpotifyPanel() {
+interface Props {
+  compact?: boolean;
+}
+
+export default function SpotifyPanel({ compact = false }: Props) {
   const { authenticated, setAuthenticated, track, poll } = useSpotifyStore();
   const [connecting, setConnecting] = useState(false);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -170,7 +174,7 @@ export default function SpotifyPanel() {
     );
   }
 
-  // ── Main layout: playlists | track list ──────────────────────────────────
+  // ── Compact layout ───────────────────────────────────────────────────────
   const filteredTracks = search.trim()
     ? tracks.filter(
         (t) =>
@@ -182,6 +186,125 @@ export default function SpotifyPanel() {
   const progress = track
     ? Math.min(100, (track.progress_ms / track.duration_ms) * 100)
     : 0;
+
+  if (compact) {
+    return (
+      <div className="flex flex-col h-full min-h-0">
+        {/* Now playing */}
+        <div className="px-3 py-2 border-b border-stone-800 flex-shrink-0">
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="w-8 h-8 rounded overflow-hidden bg-stone-800 flex-shrink-0">
+              {track?.album_art ? (
+                <img src={track.album_art} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-stone-600 text-xs">♪</div>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              {track ? (
+                <>
+                  <p className="text-xs font-medium text-stone-200 truncate leading-tight">{track.name}</p>
+                  <p className="text-xs text-stone-500 truncate leading-tight">{track.artist}</p>
+                </>
+              ) : (
+                <p className="text-xs text-stone-600">Sin reproducción</p>
+              )}
+            </div>
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              <button onClick={() => cmd("spotify_previous")} className="w-6 h-6 flex items-center justify-center text-stone-400 hover:text-stone-100 rounded hover:bg-stone-800 transition-colors text-xs">⏮</button>
+              <button onClick={() => cmd("spotify_play_pause")} className="w-7 h-7 flex items-center justify-center bg-white hover:bg-stone-200 text-stone-900 rounded-full transition-colors text-xs">
+                {track?.is_playing ? "⏸" : "▶"}
+              </button>
+              <button onClick={() => cmd("spotify_next")} className="w-6 h-6 flex items-center justify-center text-stone-400 hover:text-stone-100 rounded hover:bg-stone-800 transition-colors text-xs">⏭</button>
+            </div>
+          </div>
+          {/* Progress */}
+          <div className="h-0.5 bg-stone-800 rounded-full overflow-hidden">
+            <div className="h-full bg-green-500 transition-all duration-1000" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+
+        {/* Playlist dropdown + search */}
+        <div className="px-2 py-2 border-b border-stone-800 flex-shrink-0 flex items-center gap-1.5">
+          <select
+            value={selectedPlaylist?.id ?? ""}
+            onChange={(e) => {
+              const pl = playlists.find((p) => p.id === e.target.value);
+              if (pl) selectPlaylist(pl);
+            }}
+            className="flex-1 bg-stone-800 border border-stone-700 rounded px-2 py-1 text-xs text-stone-200 focus:outline-none focus:border-green-600 min-w-0"
+          >
+            <option value="" disabled>{loadingPlaylists ? "Cargando..." : "Seleccioná playlist"}</option>
+            {playlists.map((pl) => (
+              <option key={pl.id} value={pl.id}>{pl.name}</option>
+            ))}
+          </select>
+          {selectedPlaylist && (
+            <button
+              onClick={() => playPlaylist(selectedPlaylist)}
+              className="text-green-400 hover:text-green-300 text-xs px-1.5 py-1 rounded hover:bg-stone-800 transition-colors flex-shrink-0"
+              title="Reproducir playlist"
+            >
+              ▶
+            </button>
+          )}
+        </div>
+
+        {selectedPlaylist && (
+          <div className="px-2 py-1.5 border-b border-stone-800/50 flex-shrink-0">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar..."
+              className="w-full bg-stone-800 border border-stone-700 rounded px-2 py-1 text-xs text-stone-200 placeholder-stone-600 focus:outline-none focus:border-stone-500"
+            />
+          </div>
+        )}
+
+        {/* Track list */}
+        <div className="flex-1 overflow-y-auto">
+          {loadingTracks ? (
+            <p className="text-stone-600 text-xs p-4 text-center animate-pulse">Cargando...</p>
+          ) : !selectedPlaylist ? (
+            <p className="text-stone-600 text-xs p-4 text-center">Seleccioná una playlist</p>
+          ) : filteredTracks.length === 0 ? (
+            <p className="text-stone-600 text-xs p-4 text-center">Sin resultados</p>
+          ) : (
+            filteredTracks.map((t) => {
+              const isCurrent = track?.id === t.id;
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => playTrack(t.uri)}
+                  className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-stone-800/30 transition-colors ${isCurrent ? "bg-green-900/20" : "hover:bg-stone-800/40"}`}
+                >
+                  <span className={`text-xs w-4 flex-shrink-0 text-center ${isCurrent ? "text-green-400" : "text-stone-600"}`}>
+                    {isCurrent ? (track?.is_playing ? "▶" : "⏸") : ""}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-xs truncate ${isCurrent ? "text-green-300 font-medium" : "text-stone-300"}`}>{t.name}</p>
+                    <p className="text-xs text-stone-600 truncate">{t.artist}</p>
+                  </div>
+                  <span className="text-xs text-stone-700 flex-shrink-0 tabular-nums">{formatMs(t.duration_ms)}</span>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Logout */}
+        <div className="px-3 py-2 border-t border-stone-800 flex-shrink-0">
+          <button onClick={handleLogout} className="w-full text-xs text-stone-600 hover:text-stone-400 transition-colors">
+            Desconectar
+          </button>
+        </div>
+
+        {error && (
+          <div className="px-3 py-1.5 text-red-400 text-xs bg-red-900/10 border-t border-red-900/30 flex-shrink-0">{error}</div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0">

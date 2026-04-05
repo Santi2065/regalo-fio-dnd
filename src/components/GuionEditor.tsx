@@ -14,14 +14,12 @@ import {
 
 interface Props {
   sessionId: string;
+  mode: "prep" | "live";
 }
 
-type Mode = "prep" | "live";
-
-export default function GuionEditor({ sessionId }: Props) {
+export default function GuionEditor({ sessionId, mode }: Props) {
   const [content, setContent] = useState("");
   const [savedContent, setSavedContent] = useState("");
-  const [mode, setMode] = useState<Mode>("prep");
   const [saving, setSaving] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +59,13 @@ export default function GuionEditor({ sessionId }: Props) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [handleSave, mode]);
+
+  // Auto-save when switching to live
+  useEffect(() => {
+    if (mode === "live" && content !== savedContent) {
+      handleSave();
+    }
+  }, [mode]);
 
   const isDirty = content !== savedContent;
 
@@ -117,33 +122,6 @@ export default function GuionEditor({ sessionId }: Props) {
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-6 py-2.5 border-b border-stone-800 flex-shrink-0 bg-stone-900/40">
-        {/* Mode toggle */}
-        <div className="flex bg-stone-800 rounded-lg p-0.5 gap-0.5">
-          <button
-            onClick={() => setMode("prep")}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              mode === "prep"
-                ? "bg-stone-600 text-stone-100"
-                : "text-stone-400 hover:text-stone-200"
-            }`}
-          >
-            ✏️ Prep
-          </button>
-          <button
-            onClick={async () => {
-              if (isDirty) await handleSave();
-              setMode("live");
-            }}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              mode === "live"
-                ? "bg-amber-700 text-white"
-                : "text-stone-400 hover:text-stone-200"
-            }`}
-          >
-            ▶ Live
-          </button>
-        </div>
-
         {mode === "prep" && (
           <>
             <span className="text-xs text-stone-600">

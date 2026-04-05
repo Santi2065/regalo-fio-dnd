@@ -18,6 +18,7 @@ interface SoundboardSlot {
 
 interface Props {
   sessionId: string;
+  compact?: boolean;
 }
 
 const SLOT_COLORS = [
@@ -27,7 +28,7 @@ const SLOT_COLORS = [
 
 const GRID_SIZE = 16;
 
-export default function SoundboardPanel({ sessionId }: Props) {
+export default function SoundboardPanel({ sessionId, compact = false }: Props) {
   const [slots, setSlots] = useState<(SoundboardSlot | null)[]>(
     Array(GRID_SIZE).fill(null)
   );
@@ -186,11 +187,11 @@ export default function SoundboardPanel({ sessionId }: Props) {
   return (
     <div className="flex h-full">
       {/* Main soundboard */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Toolbar */}
-        <div className="flex items-center gap-4 px-6 py-3 border-b border-stone-800 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-stone-400 text-sm">Volumen master</span>
+        <div className={`flex items-center gap-2 border-b border-stone-800 flex-shrink-0 ${compact ? "px-3 py-2" : "px-6 py-3 gap-4"}`}>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {!compact && <span className="text-stone-400 text-sm whitespace-nowrap">Volumen master</span>}
             <input
               type="range"
               min={0}
@@ -198,29 +199,30 @@ export default function SoundboardPanel({ sessionId }: Props) {
               step={0.05}
               value={masterVolume}
               onChange={(e) => setMasterVolume(Number(e.target.value))}
-              className="w-28 accent-amber-500"
+              className="flex-1 accent-amber-500 min-w-0"
             />
-            <span className="text-stone-400 text-xs w-8">
+            <span className="text-stone-400 text-xs w-8 flex-shrink-0">
               {Math.round(masterVolume * 100)}%
             </span>
           </div>
 
           <button
             onClick={stopAll}
-            className="ml-auto bg-red-900 hover:bg-red-800 text-red-200 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors"
+            className={`flex-shrink-0 bg-red-900 hover:bg-red-800 text-red-200 rounded-lg font-medium transition-colors ${compact ? "px-2 py-1 text-xs" : "px-4 py-1.5 text-sm"}`}
           >
-            ⏹ Stop todo
+            ⏹ {compact ? "" : "Stop todo"}
           </button>
         </div>
 
-        {/* Instructions */}
-        <div className="px-6 py-2 text-xs text-stone-600 border-b border-stone-800/50 flex-shrink-0">
-          Arrastrá un audio a una celda · Click = disparar · Click derecho = editar · Hotkeys activos en cualquier pestaña
-        </div>
+        {!compact && (
+          <div className="px-6 py-2 text-xs text-stone-600 border-b border-stone-800/50 flex-shrink-0">
+            Arrastrá un audio a una celda · Click = disparar · Click derecho = editar · Hotkeys activos en cualquier pestaña
+          </div>
+        )}
 
         {/* Grid */}
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="grid grid-cols-4 gap-3">
+        <div className={`flex-1 overflow-y-auto ${compact ? "p-2" : "p-6"}`}>
+          <div className={`grid gap-2 ${compact ? "grid-cols-3" : "grid-cols-4 gap-3"}`}>
             {slots.map((slot, i) => (
               <SoundboardCell
                 key={i}
@@ -241,24 +243,26 @@ export default function SoundboardPanel({ sessionId }: Props) {
         </div>
       </div>
 
-      {/* Audio asset list */}
-      <div className="w-56 flex-shrink-0 border-l border-stone-800 flex flex-col bg-stone-900/30">
-        <div className="px-4 py-3 border-b border-stone-800">
-          <p className="text-sm font-medium text-stone-400">Audio assets</p>
-          <p className="text-xs text-stone-600 mt-0.5">Arrastrá a una celda</p>
+      {/* Audio asset list — hidden in compact mode */}
+      {!compact && (
+        <div className="w-56 flex-shrink-0 border-l border-stone-800 flex flex-col bg-stone-900/30">
+          <div className="px-4 py-3 border-b border-stone-800">
+            <p className="text-sm font-medium text-stone-400">Audio assets</p>
+            <p className="text-xs text-stone-600 mt-0.5">Arrastrá a una celda</p>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {audioAssets.length === 0 ? (
+              <p className="text-stone-600 text-xs p-4 text-center">
+                Sin audio. Importá archivos desde la pestaña Assets.
+              </p>
+            ) : (
+              audioAssets.map((asset) => (
+                <AudioAssetRow key={asset.id} asset={asset} />
+              ))
+            )}
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto">
-          {audioAssets.length === 0 ? (
-            <p className="text-stone-600 text-xs p-4 text-center">
-              Sin audio. Importá archivos desde la pestaña Assets.
-            </p>
-          ) : (
-            audioAssets.map((asset) => (
-              <AudioAssetRow key={asset.id} asset={asset} />
-            ))
-          )}
-        </div>
-      </div>
+      )}
 
       {/* Edit modal */}
       {editingSlot && (

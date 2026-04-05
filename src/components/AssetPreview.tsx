@@ -10,8 +10,18 @@ interface Props {
   onUpdate: (updated: Asset) => void;
 }
 
+const ASSET_TYPE_OPTIONS: { value: Asset["asset_type"]; label: string }[] = [
+  { value: "image",           label: "Imagen" },
+  { value: "audio",           label: "Audio" },
+  { value: "video",           label: "Video" },
+  { value: "document",        label: "Documento" },
+  { value: "map",             label: "Mapa" },
+  { value: "character_sheet", label: "Ficha de personaje" },
+];
+
 export default function AssetPreview({ asset, onClose, onDelete, onUpdate }: Props) {
   const [editName, setEditName] = useState(asset.name);
+  const [editType, setEditType] = useState<Asset["asset_type"]>(asset.asset_type);
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>(asset.tags);
   const [saving, setSaving] = useState(false);
@@ -21,8 +31,14 @@ export default function AssetPreview({ asset, onClose, onDelete, onUpdate }: Pro
   const handleSave = async () => {
     setSaving(true);
     try {
-      await invoke("update_asset", { id: asset.id, name: editName, tags });
-      onUpdate({ ...asset, name: editName, tags });
+      const typeChanged = editType !== asset.asset_type;
+      await invoke("update_asset", {
+        id: asset.id,
+        name: editName,
+        tags,
+        assetType: typeChanged ? editType : null,
+      });
+      onUpdate({ ...asset, name: editName, tags, asset_type: editType });
     } finally {
       setSaving(false);
     }
@@ -38,7 +54,7 @@ export default function AssetPreview({ asset, onClose, onDelete, onUpdate }: Pro
 
   const removeTag = (tag: string) => setTags((prev) => prev.filter((t) => t !== tag));
 
-  const isDirty = editName !== asset.name || JSON.stringify(tags) !== JSON.stringify(asset.tags);
+  const isDirty = editName !== asset.name || editType !== asset.asset_type || JSON.stringify(tags) !== JSON.stringify(asset.tags);
 
   return (
     <div className="flex flex-col h-full">
@@ -90,7 +106,15 @@ export default function AssetPreview({ asset, onClose, onDelete, onUpdate }: Pro
         {/* Type */}
         <div>
           <label className="block text-xs text-stone-500 mb-1">Tipo</label>
-          <p className="text-sm text-stone-400 capitalize">{asset.asset_type}</p>
+          <select
+            value={editType}
+            onChange={(e) => setEditType(e.target.value as Asset["asset_type"])}
+            className="w-full bg-stone-800 border border-stone-700 rounded-lg px-3 py-1.5 text-sm text-stone-200 focus:outline-none focus:border-stone-500"
+          >
+            {ASSET_TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         </div>
 
         {/* Tags */}

@@ -224,15 +224,24 @@ pub fn update_asset(
     id: String,
     name: String,
     tags: Vec<String>,
+    asset_type: Option<String>,
     state: State<AppState>,
 ) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
-    conn.execute(
-        "UPDATE assets SET name = ?1, tags = ?2 WHERE id = ?3",
-        rusqlite::params![name, tags_json, id],
-    )
-    .map_err(|e| e.to_string())?;
+    if let Some(ref atype) = asset_type {
+        conn.execute(
+            "UPDATE assets SET name = ?1, tags = ?2, asset_type = ?3 WHERE id = ?4",
+            rusqlite::params![name, tags_json, atype, id],
+        )
+        .map_err(|e| e.to_string())?;
+    } else {
+        conn.execute(
+            "UPDATE assets SET name = ?1, tags = ?2 WHERE id = ?3",
+            rusqlite::params![name, tags_json, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

@@ -130,50 +130,29 @@ export default function InitiativeTracker() {
   return (
     <div className="h-full flex flex-col bg-stone-950">
       {/* Header bar */}
-      <div className="flex items-center gap-4 px-6 py-3 border-b border-stone-800 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-stone-400 text-sm">Ronda</span>
-          <span className="text-2xl font-bold text-amber-400 tabular-nums w-8 text-center">{round}</span>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-stone-800 flex-shrink-0 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <span className="text-stone-500 text-xs">Ronda</span>
+          <span className="text-xl font-bold text-amber-400 tabular-nums w-7 text-center">{round}</span>
         </div>
 
         {sorted.length > 0 && (
           <>
-            <div className="h-5 w-px bg-stone-700" />
-            <div className="flex items-center gap-1.5">
-              <span className="text-stone-500 text-sm">Turno:</span>
-              <span className="font-semibold text-stone-100">{activeCombatant?.name}</span>
+            <div className="flex-1 min-w-0 truncate">
+              <span className="text-xs text-stone-500">▶ </span>
+              <span className="text-xs font-semibold text-stone-100 truncate">{activeCombatant?.name}</span>
             </div>
-            <div className="flex gap-1">
-              <button
-                onClick={prevTurn}
-                className="px-2.5 py-1 rounded bg-stone-800 hover:bg-stone-700 text-stone-300 text-sm transition-colors"
-              >
-                ‹
-              </button>
-              <button
-                onClick={nextTurn}
-                className="px-3 py-1 rounded bg-amber-700 hover:bg-amber-600 text-white text-sm font-medium transition-colors"
-              >
-                Siguiente ›
-              </button>
+            <div className="flex gap-1 flex-shrink-0">
+              <button onClick={prevTurn} className="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs transition-colors">‹</button>
+              <button onClick={nextTurn} className="px-2 py-1 rounded bg-amber-700 hover:bg-amber-600 text-white text-xs font-medium transition-colors">Sig ›</button>
             </div>
           </>
         )}
 
-        <div className="ml-auto flex gap-2">
-          <button
-            onClick={() => setShowAddForm((v) => !v)}
-            className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-sm transition-colors"
-          >
-            + Agregar
-          </button>
+        <div className="flex gap-1 flex-shrink-0 ml-auto">
+          <button onClick={() => setShowAddForm((v) => !v)} className="px-2 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs transition-colors">+ Agregar</button>
           {combatants.length > 0 && (
-            <button
-              onClick={reset}
-              className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-500 hover:text-stone-300 text-sm transition-colors"
-            >
-              Reiniciar
-            </button>
+            <button onClick={reset} className="px-2 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-600 hover:text-stone-300 text-xs transition-colors">↺</button>
           )}
         </div>
       </div>
@@ -276,7 +255,7 @@ export default function InitiativeTracker() {
                     isActive ? "bg-amber-900/20" : isDead ? "opacity-50" : "hover:bg-stone-800/30"
                   } ${TYPE_STYLES[c.type]}`}
                 >
-                  <div className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="flex items-center gap-2 px-3 py-2">
                     {/* Turn indicator */}
                     <div className="w-5 flex-shrink-0 text-center">
                       {isActive ? (
@@ -331,8 +310,8 @@ export default function InitiativeTracker() {
                     </div>
 
                     {/* HP bar + edit */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <div className="w-24">
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <div className="w-16">
                         <div className="flex justify-between text-xs text-stone-400 mb-0.5">
                           <span>{c.hp}</span>
                           <span className="text-stone-600">/{c.maxHp}</span>
