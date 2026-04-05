@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSessionStore } from "../store/sessionStore";
 import { useSpotifyStore } from "../store/spotifyStore";
@@ -18,6 +18,28 @@ type MainSection = "guion" | "assets" | "personajes";
 type ToolTab = "soundboard" | "display" | "initiative" | "notes" | "spotify";
 type Mode = "prep" | "live";
 
+const PANEL_MIN = 240;
+const PANEL_MAX = 560;
+const PANEL_DEFAULT = 320;
+const LS_KEY = "dnd-dashboard-v1";
+
+function loadPrefs() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function savePrefs(patch: Record<string, unknown>) {
+  try {
+    const prev = loadPrefs();
+    localStorage.setItem(LS_KEY, JSON.stringify({ ...prev, ...patch }));
+  } catch { /* ignore */ }
+}
+
 export default function SessionDashboard() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -27,13 +49,32 @@ export default function SessionDashboard() {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
 
-  const [mainSection, setMainSection] = useState<MainSection>("guion");
-  const [toolTab, setToolTab] = useState<ToolTab>("soundboard");
-  const [collapsed, setCollapsed] = useState(false);
+  // ── Persisted UI state ──────────────────────────────────────────────────
+  const prefs = loadPrefs();
+  const [mainSection, setMainSection] = useState<MainSection>(
+    (prefs.mainSection as MainSection) ?? "guion"
+  );
+  const [toolTab, setToolTab] = useState<ToolTab>(
+    (prefs.toolTab as ToolTab) ?? "soundboard"
+  );
+  const [collapsed, setCollapsed] = useState<boolean>(
+    (prefs.collapsed as boolean) ?? false
+  );
+  const [panelWidth, setPanelWidth] = useState<number>(
+    (prefs.panelWidth as number) ?? PANEL_DEFAULT
+  );
   const [mode, setMode] = useState<Mode>("prep");
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dragStateRef = useRef<{ startX: number; startW: number } | null>(null);
 
+  // ── Persist prefs ───────────────────────────────────────────────────────
+  useEffect(() => { savePrefs({ mainSection }); }, [mainSection]);
+  useEffect(() => { savePrefs({ toolTab }); }, [toolTab]);
+  useEffect(() => { savePrefs({ collapsed }); }, [collapsed]);
+  useEffect(() => { savePrefs({ panelWidth }); }, [panelWidth]);
+
+  // ── Data loading ────────────────────────────────────────────────────────
   useEffect(() => {
     if (sessions.length === 0) fetchSessions();
   }, []);
@@ -62,6 +103,71 @@ export default function SessionDashboard() {
     };
   }, [authenticated]);
 
+  // ── Keyboard shortcuts ──────────────────────────────────────────────────
+  const mainNavKeys: MainSection[] = ["guion", "assets", "personajes"];
+  const toolTabKeys: ToolTab[] = ["soundboard", "display", "initiative", "notes", "spotify"];
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) return;
+
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl+\ → toggle panel
+        if (e.key === "\\") {
+          e.preventDefault();
+          setCollapsed((c) => !c);
+          return;
+        }
+        const num = parseInt(e.key);
+        if (!isNaN(num)) {
+          // Ctrl+1/2/3 → main sections
+          if (num >= 1 && num <= 3) {
+            e.preventDefault();
+            if (mode !== "live" || num === 1) {
+              setMainSection(mainNavKeys[num - 1]);
+            }
+            return;
+          }
+          // Ctrl+4..8 → tool tabs
+          if (num >= 4 && num <= 8) {
+            e.preventDefault();
+            setToolTab(toolTabKeys[num - 4]);
+            if (collapsed) setCollapsed(false);
+            return;
+          }
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [mode, collapsed]);
+
+  // ── Resize handle ───────────────────────────────────────────────────────
+  const onResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragStateRef.current = { startX: e.clientX, startW: panelWidth };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragStateRef.current) return;
+      const delta = dragStateRef.current.startX - ev.clientX; // dragging left = wider
+      const newW = Math.min(PANEL_MAX, Math.max(PANEL_MIN, dragStateRef.current.startW + delta));
+      setPanelWidth(newW);
+    };
+
+    const onUp = () => {
+      dragStateRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [panelWidth]);
+
   if (!id) return null;
 
   const handleRename = async (e: React.FormEvent) => {
@@ -73,25 +179,24 @@ export default function SessionDashboard() {
 
   const handleModeChange = (m: Mode) => {
     if (m === "live") {
-      // Force guion section and expand tool panel in live mode
       setMainSection("guion");
       setCollapsed(false);
     }
     setMode(m);
   };
 
-  const mainNavItems: { key: MainSection; icon: string; label: string }[] = [
-    { key: "guion",     icon: "📜", label: "Guión" },
-    { key: "assets",    icon: "🗃",  label: "Assets" },
-    { key: "personajes",icon: "👤", label: "Personajes" },
+  const mainNavItems: { key: MainSection; icon: string; label: string; shortcut: string }[] = [
+    { key: "guion",      icon: "📜", label: "Guión",      shortcut: "Ctrl+1" },
+    { key: "assets",     icon: "🗃",  label: "Assets",     shortcut: "Ctrl+2" },
+    { key: "personajes", icon: "👤", label: "Personajes",  shortcut: "Ctrl+3" },
   ];
 
-  const toolItems: { key: ToolTab; icon: string; label: string }[] = [
-    { key: "soundboard", icon: "🔊", label: "Sonido" },
-    { key: "display",    icon: "🖥",  label: "Proyección" },
-    { key: "initiative", icon: "⚔",  label: "Iniciativa" },
-    { key: "notes",      icon: "📝", label: "Notas" },
-    { key: "spotify",    icon: "🎵", label: "Spotify" },
+  const toolItems: { key: ToolTab; icon: string; label: string; shortcut: string }[] = [
+    { key: "soundboard", icon: "🔊", label: "Sonido",      shortcut: "Ctrl+4" },
+    { key: "display",    icon: "🖥",  label: "Proyección",  shortcut: "Ctrl+5" },
+    { key: "initiative", icon: "⚔",  label: "Iniciativa",  shortcut: "Ctrl+6" },
+    { key: "notes",      icon: "📝", label: "Notas",       shortcut: "Ctrl+7" },
+    { key: "spotify",    icon: "🎵", label: "Spotify",     shortcut: "Ctrl+8" },
   ];
 
   return (
@@ -124,7 +229,8 @@ export default function SessionDashboard() {
           </form>
         ) : (
           <h1
-            className="font-semibold text-amber-400 text-base cursor-pointer hover:text-amber-300 transition-colors truncate"
+            className="text-amber-400 cursor-pointer hover:text-amber-300 transition-colors truncate"
+            style={{ fontFamily: "var(--font-family-display)", fontSize: "1rem", fontWeight: 600 }}
             title="Click para renombrar"
             onClick={() => setEditing(true)}
           >
@@ -163,19 +269,19 @@ export default function SessionDashboard() {
         </div>
       </div>
 
-      {/* ── Body: left nav + main workspace + tool panel ─────────────────── */}
+      {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* Left nav (48px) */}
         <div className="w-12 flex-shrink-0 border-r border-stone-800 bg-stone-900/40 flex flex-col items-center py-2 gap-1">
-          {mainNavItems.map(({ key, icon, label }) => {
+          {mainNavItems.map(({ key, icon, label, shortcut }) => {
             const isLive = mode === "live";
             const disabled = isLive && key !== "guion";
             return (
               <button
                 key={key}
                 onClick={() => !disabled && setMainSection(key)}
-                title={label}
+                title={`${label} (${shortcut})`}
                 className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-colors ${
                   mainSection === key && !disabled
                     ? "bg-stone-700 text-stone-100"
@@ -190,8 +296,8 @@ export default function SessionDashboard() {
           })}
         </div>
 
-        {/* Main workspace — all sections always mounted */}
-        <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
+        {/* Main workspace */}
+        <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
           <div className={mainSection === "guion" ? "h-full" : "hidden"}>
             <GuionEditor sessionId={id} mode={mode} />
           </div>
@@ -203,30 +309,42 @@ export default function SessionDashboard() {
           </div>
         </div>
 
-        {/* Tool panel + collapse toggle */}
+        {/* Tool panel + resize handle + collapse toggle */}
         <div className="flex flex-shrink-0">
-          {/* Collapse toggle button — always visible at the seam */}
-          <button
-            onClick={() => setCollapsed((c) => !c)}
-            title={collapsed ? "Expandir panel" : "Colapsar panel"}
-            className="w-4 flex-shrink-0 flex items-center justify-center bg-stone-900/40 hover:bg-stone-800 border-l border-stone-800 text-stone-600 hover:text-stone-300 transition-colors text-xs self-stretch"
-          >
-            {collapsed ? "‹" : "›"}
-          </button>
+          {/* Resize + collapse strip */}
+          <div className="flex flex-col border-l border-stone-800 flex-shrink-0">
+            {/* Drag handle (top portion) */}
+            <div
+              onMouseDown={onResizeMouseDown}
+              className="flex-1 w-4 cursor-col-resize hover:bg-stone-700/50 transition-colors group flex items-center justify-center"
+              title="Arrastrá para redimensionar"
+            >
+              <div className="w-0.5 h-8 bg-stone-700 rounded-full group-hover:bg-stone-500 transition-colors" />
+            </div>
+            {/* Collapse button (bottom) */}
+            <button
+              onClick={() => setCollapsed((c) => !c)}
+              title={collapsed ? "Expandir panel (Ctrl+\\)" : "Colapsar panel (Ctrl+\\)"}
+              className="w-4 h-8 flex-shrink-0 flex items-center justify-center bg-stone-900/40 hover:bg-stone-800 text-stone-600 hover:text-stone-300 transition-colors text-xs mb-2"
+            >
+              {collapsed ? "‹" : "›"}
+            </button>
+          </div>
 
-          {/* Tool panel (320px, collapsible) */}
+          {/* Tool panel */}
           <div
-            className={`flex flex-col bg-stone-900/30 transition-all duration-200 overflow-hidden border-l border-stone-800 ${
-              collapsed ? "w-0" : "w-80"
+            className={`flex flex-col bg-stone-900/30 transition-[width] duration-200 overflow-hidden border-l border-stone-800 ${
+              collapsed ? "w-0" : ""
             }`}
+            style={collapsed ? undefined : { width: panelWidth }}
           >
             {/* Tab strip */}
             <div className="flex items-center border-b border-stone-800 flex-shrink-0">
-              {toolItems.map(({ key, icon, label }) => (
+              {toolItems.map(({ key, icon, label, shortcut }) => (
                 <button
                   key={key}
                   onClick={() => setToolTab(key)}
-                  title={label}
+                  title={`${label} (${shortcut})`}
                   className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 ${
                     toolTab === key
                       ? "border-amber-500 text-amber-400"
