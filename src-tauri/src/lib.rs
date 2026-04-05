@@ -5,6 +5,7 @@ mod display;
 mod guion;
 mod notes;
 mod session;
+mod spotify;
 
 use std::sync::Mutex;
 
@@ -53,6 +54,18 @@ pub fn run() {
             audio::add_soundboard_slot,
             audio::update_soundboard_slot,
             audio::remove_soundboard_slot,
+            // Spotify
+            spotify::spotify_auth_url,
+            spotify::spotify_exchange_code,
+            spotify::spotify_status,
+            spotify::spotify_logout,
+            spotify::spotify_current_track,
+            spotify::spotify_play_pause,
+            spotify::spotify_next,
+            spotify::spotify_previous,
+            spotify::spotify_set_volume,
+            spotify::spotify_get_playlists,
+            spotify::spotify_play_playlist,
             // Display
             display::get_monitors,
             display::open_player_display,

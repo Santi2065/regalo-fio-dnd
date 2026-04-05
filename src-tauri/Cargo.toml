@@ -32,4 +32,10 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 thiserror = "1"
 rodio = { version = "0.19", features = ["mp3", "wav", "flac", "vorbis"] }
 once_cell = "1"
+reqwest = { version = "0.12", features = ["json"] }
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+url = "2"
+urlencoding = "2"
 
