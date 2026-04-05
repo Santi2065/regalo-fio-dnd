@@ -51,9 +51,19 @@ export default function SoundboardPanel({ sessionId }: Props) {
 
   useEffect(() => {
     loadSlots();
-    invoke<Asset[]>("get_assets", { sessionId, assetTypeFilter: "audio" }).then(
-      setAudioAssets
-    );
+    // Load audio from both this session and the global library
+    Promise.all([
+      invoke<Asset[]>("get_assets", { sessionId, assetTypeFilter: "audio" }),
+      invoke<Asset[]>("get_assets", { sessionId: null, assetTypeFilter: "audio" }),
+    ]).then(([sess, global]) => {
+      // Merge, deduplicating by id
+      const seen = new Set<string>();
+      const all: Asset[] = [];
+      for (const a of [...sess, ...global]) {
+        if (!seen.has(a.id)) { seen.add(a.id); all.push(a); }
+      }
+      setAudioAssets(all);
+    });
   }, [sessionId]);
 
   const handleTrigger = async (slot: SoundboardSlot, _position: number) => {
@@ -128,6 +138,29 @@ export default function SoundboardPanel({ sessionId }: Props) {
     });
   };
 
+  // ── Global hotkey listener ─────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Don't fire when typing in inputs
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) return;
+
+      const key = e.key.toLowerCase();
+      for (const slot of slots) {
+        if (slot && slot.hotkey && slot.hotkey.toLowerCase() === key) {
+          e.preventDefault();
+          handleTrigger(slot, slot.slot_position);
+          return;
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [slots, handleTrigger]);
+
   const handleSaveEdit = async () => {
     if (!editingSlot) return;
     await invoke("update_soundboard_slot", {
@@ -182,7 +215,7 @@ export default function SoundboardPanel({ sessionId }: Props) {
 
         {/* Instructions */}
         <div className="px-6 py-2 text-xs text-stone-600 border-b border-stone-800/50 flex-shrink-0">
-          Arrastrá un audio desde la lista de la derecha a una celda · Click para disparar · Click derecho para editar
+          Arrastrá un audio a una celda · Click = disparar · Click derecho = editar · Hotkeys activos en cualquier pestaña
         </div>
 
         {/* Grid */}
@@ -229,6 +262,48 @@ export default function SoundboardPanel({ sessionId }: Props) {
 
       {/* Edit modal */}
       {editingSlot && (
+        <EditModal
+          slot={editingSlot}
+          onChange={setEditingSlot}
+          onSave={handleSaveEdit}
+          onCancel={() => setEditingSlot(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Extracted to avoid hook-in-conditional issue
+function EditModal({
+  slot: editingSlot,
+  onChange: setEditingSlot,
+  onSave: handleSaveEdit,
+  onCancel,
+}: {
+  slot: SoundboardSlot;
+  onChange: (s: SoundboardSlot) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const [capturingKey, setCapturingKey] = useState(false);
+
+  useEffect(() => {
+    if (!capturingKey) return;
+    const handler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      if (e.key === "Escape") {
+        setCapturingKey(false);
+        return;
+      }
+      const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+      setEditingSlot({ ...editingSlot, hotkey: key });
+      setCapturingKey(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [capturingKey, editingSlot]);
+
+  return (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-stone-900 border border-stone-700 rounded-xl p-6 w-80">
             <h3 className="font-semibold text-stone-100 mb-4">Editar slot</h3>
@@ -265,6 +340,36 @@ export default function SoundboardPanel({ sessionId }: Props) {
                 <span className="text-sm text-stone-300">Loop (ambient)</span>
               </label>
               <div>
+                <label className="block text-xs text-stone-500 mb-1">Hotkey</label>
+                <div className="flex items-center gap-2">
+                  {editingSlot.hotkey ? (
+                    <kbd className="bg-stone-700 text-stone-200 text-xs px-2 py-1 rounded border border-stone-500 font-mono">
+                      {editingSlot.hotkey}
+                    </kbd>
+                  ) : (
+                    <span className="text-xs text-stone-600">Sin asignar</span>
+                  )}
+                  <button
+                    onClick={() => setCapturingKey(true)}
+                    className={`px-2 py-1 rounded text-xs transition-colors ${
+                      capturingKey
+                        ? "bg-amber-700 text-white animate-pulse"
+                        : "bg-stone-700 hover:bg-stone-600 text-stone-300"
+                    }`}
+                  >
+                    {capturingKey ? "Presioná una tecla..." : "Asignar tecla"}
+                  </button>
+                  {editingSlot.hotkey && (
+                    <button
+                      onClick={() => setEditingSlot({ ...editingSlot, hotkey: null })}
+                      className="text-xs text-stone-600 hover:text-red-400 transition-colors"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div>
                 <label className="block text-xs text-stone-500 mb-1">Color</label>
                 <div className="flex gap-2 flex-wrap">
                   {SLOT_COLORS.map((c) => (
@@ -289,7 +394,7 @@ export default function SoundboardPanel({ sessionId }: Props) {
                 Guardar
               </button>
               <button
-                onClick={() => setEditingSlot(null)}
+                onClick={onCancel}
                 className="flex-1 bg-stone-700 hover:bg-stone-600 text-stone-300 py-2 rounded-lg text-sm transition-colors"
               >
                 Cancelar
@@ -297,8 +402,6 @@ export default function SoundboardPanel({ sessionId }: Props) {
             </div>
           </div>
         </div>
-      )}
-    </div>
   );
 }
 
@@ -375,6 +478,11 @@ function SoundboardCell({
             <span className="text-xs text-stone-500 mt-0.5">
               {isAmbient ? "▶ playing" : "loop"}
             </span>
+          )}
+          {slot.hotkey && (
+            <kbd className="absolute bottom-1 right-1 bg-black/40 text-stone-400 text-[9px] px-1 rounded font-mono leading-tight">
+              {slot.hotkey}
+            </kbd>
           )}
 
           <button
