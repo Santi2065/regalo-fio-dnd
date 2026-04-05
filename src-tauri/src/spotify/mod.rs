@@ -503,25 +503,21 @@ pub async fn spotify_get_playlist_tracks(
 ) -> Result<Vec<SpotifyTrackItem>, String> {
     let token = get_valid_token(&client_id).await?;
 
+    // Use serde_json::Value for the track field — playlists can contain
+    // songs, local files, and podcast episodes with very different schemas.
     #[derive(Deserialize)]
-    struct Artist { name: String }
-    #[derive(Deserialize)]
-    struct Track {
-        id: Option<String>,
-        uri: String,
-        name: String,
-        artists: Vec<Artist>,
-        duration_ms: u64,
-        track_number: u32,
+    struct Item {
+        track: Option<serde_json::Value>,
     }
     #[derive(Deserialize)]
-    struct Item { track: Option<Track> }
-    #[derive(Deserialize)]
-    struct Response { items: Vec<Item>, next: Option<String> }
+    struct Response {
+        items: Vec<Item>,
+        next: Option<String>,
+    }
 
     let mut all: Vec<SpotifyTrackItem> = Vec::new();
     let mut url = format!(
-        "https://api.spotify.com/v1/playlists/{playlist_id}/tracks?limit=100&fields=items(track(id,uri,name,artists,duration_ms,track_number)),next"
+        "https://api.spotify.com/v1/playlists/{playlist_id}/tracks?limit=100"
     );
 
     loop {
@@ -533,24 +529,68 @@ pub async fn spotify_get_playlist_tracks(
             .map_err(|e| e.to_string())?;
 
         if !resp.status().is_success() {
-            return Err(format!("API error: {}", resp.status()));
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("API error {status}: {body}"));
         }
 
         let data: Response = resp.json().await.map_err(|e| e.to_string())?;
 
         for item in data.items {
-            if let Some(t) = item.track {
-                if let Some(id) = t.id {
-                    all.push(SpotifyTrackItem {
-                        id,
-                        uri: t.uri,
-                        name: t.name,
-                        artist: t.artists.into_iter().map(|a| a.name).collect::<Vec<_>>().join(", "),
-                        duration_ms: t.duration_ms,
-                        track_number: t.track_number,
-                    });
-                }
+            let Some(track) = item.track else { continue };
+
+            // Skip episodes / local files — they lack a proper id
+            let id = match track.get("id").and_then(|v| v.as_str()) {
+                Some(s) if !s.is_empty() => s.to_string(),
+                _ => continue,
+            };
+
+            let uri = track
+                .get("uri")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            // Skip if not a regular track URI
+            if !uri.starts_with("spotify:track:") {
+                continue;
             }
+
+            let name = track
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown")
+                .to_string();
+
+            let artist = track
+                .get("artists")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|a| a.get("name").and_then(|n| n.as_str()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+
+            let duration_ms = track
+                .get("duration_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+
+            let track_number = track
+                .get("track_number")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+
+            all.push(SpotifyTrackItem {
+                id,
+                uri,
+                name,
+                artist,
+                duration_ms,
+                track_number,
+            });
         }
 
         match data.next {

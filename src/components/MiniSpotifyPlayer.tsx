@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSpotifyStore, SPOTIFY_CLIENT_ID } from "../store/spotifyStore";
 
@@ -8,15 +9,47 @@ function formatMs(ms: number) {
 
 export default function MiniSpotifyPlayer() {
   const { track, poll } = useSpotifyStore();
+  const [volume, setVolume] = useState(50);
+  const [muted, setMuted] = useState(false);
+  const prevVolRef = { current: volume };
 
   const cmd = async (command: string) => {
     await invoke(command, { clientId: SPOTIFY_CLIENT_ID });
     setTimeout(poll, 400);
   };
 
+  const handleVolume = async (v: number) => {
+    setVolume(v);
+    setMuted(v === 0);
+    await invoke("spotify_set_volume", {
+      clientId: SPOTIFY_CLIENT_ID,
+      volumePercent: v,
+    }).catch(() => {});
+  };
+
+  const toggleMute = async () => {
+    if (muted) {
+      const restored = volume > 0 ? volume : 50;
+      setMuted(false);
+      await invoke("spotify_set_volume", {
+        clientId: SPOTIFY_CLIENT_ID,
+        volumePercent: restored,
+      }).catch(() => {});
+    } else {
+      prevVolRef.current = volume;
+      setMuted(true);
+      await invoke("spotify_set_volume", {
+        clientId: SPOTIFY_CLIENT_ID,
+        volumePercent: 0,
+      }).catch(() => {});
+    }
+  };
+
   const progress = track
     ? Math.min(100, (track.progress_ms / track.duration_ms) * 100)
     : 0;
+
+  const effectiveVol = muted ? 0 : volume;
 
   return (
     <div className="flex-shrink-0 border-t border-stone-800 bg-stone-900/80 backdrop-blur-sm">
@@ -52,7 +85,7 @@ export default function MiniSpotifyPlayer() {
 
         {/* Time */}
         {track && (
-          <span className="text-xs text-stone-600 tabular-nums flex-shrink-0 hidden sm:block">
+          <span className="text-xs text-stone-600 tabular-nums flex-shrink-0 hidden lg:block">
             {formatMs(track.progress_ms)} / {formatMs(track.duration_ms)}
           </span>
         )}
@@ -77,6 +110,28 @@ export default function MiniSpotifyPlayer() {
           >
             <span className="text-sm">⏭</span>
           </button>
+        </div>
+
+        {/* Volume */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
+          <button
+            onClick={toggleMute}
+            className="text-stone-500 hover:text-stone-300 transition-colors text-sm w-5 text-center"
+            title={muted ? "Desmutear" : "Mutear"}
+          >
+            {effectiveVol === 0 ? "🔇" : effectiveVol < 40 ? "🔈" : effectiveVol < 75 ? "🔉" : "🔊"}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={effectiveVol}
+            onChange={(e) => handleVolume(Number(e.target.value))}
+            className="w-20 accent-green-500 cursor-pointer"
+          />
+          <span className="text-xs text-stone-600 tabular-nums w-7 text-right hidden sm:block">
+            {effectiveVol}%
+          </span>
         </div>
       </div>
     </div>
