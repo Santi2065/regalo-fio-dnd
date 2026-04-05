@@ -7,7 +7,7 @@ import AssetCard from "./AssetCard";
 import AssetPreview from "./AssetPreview";
 
 interface Props {
-  sessionId: string;
+  sessionId: string; // the current session; null passed to backend = global library
 }
 
 const TYPE_FILTERS: { key: AssetType; label: string; icon: string }[] = [
@@ -26,20 +26,24 @@ export default function AssetBrowser({ sessionId }: Props) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [preview, setPreview] = useState<Asset | null>(null);
   const [search, setSearch] = useState("");
+  const [scope, setScope] = useState<"session" | "global">("session");
   const unlistenRef = useRef<(() => void) | null>(null);
+
+  // session scope → pass actual sessionId; global scope → pass null (global library)
+  const effectiveSessionId = scope === "session" ? sessionId : null;
 
   const fetchAssets = useCallback(async () => {
     setLoading(true);
     try {
       const result = await invoke<Asset[]>("get_assets", {
-        sessionId,
+        sessionId: effectiveSessionId,
         assetTypeFilter: filter === "all" ? null : filter,
       });
       setAssets(result);
     } finally {
       setLoading(false);
     }
-  }, [sessionId, filter]);
+  }, [effectiveSessionId, filter]);
 
   useEffect(() => {
     fetchAssets();
@@ -75,7 +79,7 @@ export default function AssetBrowser({ sessionId }: Props) {
   const handleImport = async (paths: string[]) => {
     setImporting(true);
     try {
-      const newAssets = await invoke<Asset[]>("import_assets", { sessionId, filePaths: paths });
+      const newAssets = await invoke<Asset[]>("import_assets", { sessionId: effectiveSessionId, filePaths: paths });
       setAssets((prev) => [...newAssets, ...prev]);
     } finally {
       setImporting(false);
@@ -119,6 +123,32 @@ export default function AssetBrowser({ sessionId }: Props) {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Toolbar */}
         <div className="flex items-center gap-3 px-6 py-3 border-b border-stone-800 flex-shrink-0">
+          {/* Scope toggle */}
+          <div className="flex rounded-lg overflow-hidden border border-stone-700 flex-shrink-0">
+            <button
+              onClick={() => { setScope("session"); setPreview(null); }}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                scope === "session"
+                  ? "bg-amber-700 text-white"
+                  : "bg-stone-800 text-stone-400 hover:text-stone-200"
+              }`}
+            >
+              Esta sesión
+            </button>
+            <button
+              onClick={() => { setScope("global"); setPreview(null); }}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                scope === "global"
+                  ? "bg-indigo-700 text-white"
+                  : "bg-stone-800 text-stone-400 hover:text-stone-200"
+              }`}
+            >
+              🌐 Biblioteca global
+            </button>
+          </div>
+
+          <div className="w-px h-5 bg-stone-700 flex-shrink-0" />
+
           {/* Type filters */}
           <div className="flex gap-1">
             {TYPE_FILTERS.map((f) => (
@@ -181,6 +211,8 @@ export default function AssetBrowser({ sessionId }: Props) {
               <p className="text-stone-500 text-sm">
                 {search
                   ? "Sin resultados para esa búsqueda"
+                  : scope === "global"
+                  ? "La biblioteca global está vacía. Importá assets que quieras usar en cualquier sesión."
                   : "Sin assets todavía. Arrastrá archivos aquí o usá el botón de importar."}
               </p>
             </div>

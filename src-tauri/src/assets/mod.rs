@@ -82,79 +82,94 @@ fn row_to_asset(
     }
 }
 
-#[tauri::command]
-pub fn get_assets(
-    session_id: String,
-    asset_type_filter: Option<String>,
-    state: State<AppState>,
+fn fetch_assets(
+    conn: &rusqlite::Connection,
+    session_id: &Option<String>,
+    asset_type_filter: &Option<String>,
 ) -> Result<Vec<Asset>, String> {
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    // Build SQL depending on whether we want session-scoped or global assets
+    let where_scope = if session_id.is_some() {
+        "session_id = ?1"
+    } else {
+        "session_id IS NULL"
+    };
 
-    if let Some(ref filter) = asset_type_filter {
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, session_id, name, file_path, asset_type, thumbnail_path, tags, created_at
-                 FROM assets WHERE session_id = ?1 AND asset_type = ?2 ORDER BY created_at DESC",
-            )
-            .map_err(|e| e.to_string())?;
+    let sql = match asset_type_filter {
+        Some(_) => format!(
+            "SELECT id, session_id, name, file_path, asset_type, thumbnail_path, tags, created_at
+             FROM assets WHERE {where_scope} AND asset_type = ?2 ORDER BY created_at DESC"
+        ),
+        None => format!(
+            "SELECT id, session_id, name, file_path, asset_type, thumbnail_path, tags, created_at
+             FROM assets WHERE {where_scope} ORDER BY created_at DESC"
+        ),
+    };
 
-        let rows: Vec<RawRow> = stmt
-            .query_map(rusqlite::params![session_id, filter], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                    row.get(7)?,
-                ))
-            })
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+
+    let map_row = |row: &rusqlite::Row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, Option<String>>(5)?,
+            row.get::<_, String>(6)?,
+            row.get::<_, String>(7)?,
+        ))
+    };
+
+    let rows: Vec<RawRow> = match (session_id, asset_type_filter) {
+        (Some(sid), Some(filter)) => stmt
+            .query_map(rusqlite::params![sid, filter], map_row)
             .map_err(|e| e.to_string())?
             .filter_map(|r| r.ok())
-            .collect();
-
-        return Ok(rows.into_iter().map(row_to_asset).collect());
-    }
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, session_id, name, file_path, asset_type, thumbnail_path, tags, created_at
-             FROM assets WHERE session_id = ?1 ORDER BY created_at DESC",
-        )
-        .map_err(|e| e.to_string())?;
-
-    let rows: Vec<RawRow> = stmt
-        .query_map(rusqlite::params![session_id], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-                row.get(7)?,
-            ))
-        })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+            .collect(),
+        (Some(sid), None) => stmt
+            .query_map(rusqlite::params![sid], map_row)
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect(),
+        (None, Some(filter)) => stmt
+            .query_map(rusqlite::params![filter], map_row)
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect(),
+        (None, None) => stmt
+            .query_map([], map_row)
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect(),
+    };
 
     Ok(rows.into_iter().map(row_to_asset).collect())
 }
 
 #[tauri::command]
+pub fn get_assets(
+    session_id: Option<String>,
+    asset_type_filter: Option<String>,
+    state: State<AppState>,
+) -> Result<Vec<Asset>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    fetch_assets(&conn, &session_id, &asset_type_filter)
+}
+
+#[tauri::command]
 pub fn import_assets(
-    session_id: String,
+    session_id: Option<String>,
     file_paths: Vec<String>,
     state: State<AppState>,
 ) -> Result<Vec<Asset>, String> {
-    let dest_dir = crate::db::get_app_data_dir()
-        .join("sessions")
-        .join(&session_id)
-        .join("assets");
+    let dest_dir = if let Some(ref sid) = session_id {
+        crate::db::get_app_data_dir()
+            .join("sessions")
+            .join(sid)
+            .join("assets")
+    } else {
+        crate::db::get_app_data_dir().join("global_assets")
+    };
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
 
     let thumbs_dir = dest_dir.join("thumbnails");
@@ -191,7 +206,7 @@ pub fn import_assets(
 
         created.push(Asset {
             id,
-            session_id: Some(session_id.clone()),
+            session_id: session_id.clone(),
             name: file_name.to_string(),
             file_path: dest_str,
             asset_type: asset_type.to_string(),

@@ -11,7 +11,10 @@
       "Bash(cp:*)",
       "Bash(npm install:*)",
       "Bash(cargo check:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(WEBKIT_DISABLE_COMPOSITING_MODE=1 npm run tauri build)",
+      "WebFetch(domain:incompetech.com)",
+      "WebFetch(domain:2minutetabletop.com)"
     ]
   }
 }
