@@ -66,6 +66,8 @@ pub fn run() {
             spotify::spotify_set_volume,
             spotify::spotify_get_playlists,
             spotify::spotify_play_playlist,
+            spotify::spotify_get_playlist_tracks,
+            spotify::spotify_play_track,
             // Display
             display::get_monitors,
             display::open_player_display,

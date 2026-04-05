@@ -485,3 +485,101 @@ pub async fn spotify_play_playlist(client_id: String, playlist_id: String) -> Re
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SpotifyTrackItem {
+    pub id: String,
+    pub uri: String,
+    pub name: String,
+    pub artist: String,
+    pub duration_ms: u64,
+    pub track_number: u32,
+}
+
+#[tauri::command]
+pub async fn spotify_get_playlist_tracks(
+    client_id: String,
+    playlist_id: String,
+) -> Result<Vec<SpotifyTrackItem>, String> {
+    let token = get_valid_token(&client_id).await?;
+
+    #[derive(Deserialize)]
+    struct Artist { name: String }
+    #[derive(Deserialize)]
+    struct Track {
+        id: Option<String>,
+        uri: String,
+        name: String,
+        artists: Vec<Artist>,
+        duration_ms: u64,
+        track_number: u32,
+    }
+    #[derive(Deserialize)]
+    struct Item { track: Option<Track> }
+    #[derive(Deserialize)]
+    struct Response { items: Vec<Item>, next: Option<String> }
+
+    let mut all: Vec<SpotifyTrackItem> = Vec::new();
+    let mut url = format!(
+        "https://api.spotify.com/v1/playlists/{playlist_id}/tracks?limit=100&fields=items(track(id,uri,name,artists,duration_ms,track_number)),next"
+    );
+
+    loop {
+        let resp = reqwest::Client::new()
+            .get(&url)
+            .bearer_auth(&token)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            return Err(format!("API error: {}", resp.status()));
+        }
+
+        let data: Response = resp.json().await.map_err(|e| e.to_string())?;
+
+        for item in data.items {
+            if let Some(t) = item.track {
+                if let Some(id) = t.id {
+                    all.push(SpotifyTrackItem {
+                        id,
+                        uri: t.uri,
+                        name: t.name,
+                        artist: t.artists.into_iter().map(|a| a.name).collect::<Vec<_>>().join(", "),
+                        duration_ms: t.duration_ms,
+                        track_number: t.track_number,
+                    });
+                }
+            }
+        }
+
+        match data.next {
+            Some(next_url) if all.len() < 500 => url = next_url,
+            _ => break,
+        }
+    }
+
+    Ok(all)
+}
+
+/// Play a specific track within a playlist context (so playback continues naturally).
+#[tauri::command]
+pub async fn spotify_play_track(
+    client_id: String,
+    playlist_id: String,
+    track_uri: String,
+) -> Result<(), String> {
+    let token = get_valid_token(&client_id).await?;
+    let body = serde_json::json!({
+        "context_uri": format!("spotify:playlist:{playlist_id}"),
+        "offset": { "uri": track_uri }
+    });
+    reqwest::Client::new()
+        .put("https://api.spotify.com/v1/me/player/play")
+        .bearer_auth(&token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}

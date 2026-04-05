@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSessionStore } from "../store/sessionStore";
+import { useSpotifyStore } from "../store/spotifyStore";
 import AssetBrowser from "../components/AssetBrowser";
 import NotesPanel from "../components/NotesPanel";
 import SoundboardPanel from "../components/SoundboardPanel";
@@ -8,7 +9,9 @@ import DisplayPanel from "../components/DisplayPanel";
 import GuionEditor from "../components/GuionEditor";
 import InitiativeTracker from "../components/InitiativeTracker";
 import SpotifyPanel from "../components/SpotifyPanel";
+import MiniSpotifyPlayer from "../components/MiniSpotifyPlayer";
 import type { Session } from "../lib/types";
+import { invoke } from "@tauri-apps/api/core";
 
 type Tab = "guion" | "assets" | "notes" | "soundboard" | "display" | "initiative" | "spotify";
 
@@ -16,10 +19,12 @@ export default function SessionDashboard() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { sessions, fetchSessions, updateSession } = useSessionStore();
+  const { authenticated, setAuthenticated, poll } = useSpotifyStore();
   const [session, setSession] = useState<Session | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("guion");
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (sessions.length === 0) fetchSessions();
@@ -32,6 +37,23 @@ export default function SessionDashboard() {
       setEditName(found.name);
     }
   }, [sessions, id]);
+
+  // Check Spotify auth on mount and start polling if authenticated
+  useEffect(() => {
+    invoke<{ authenticated: boolean }>("spotify_status").then(({ authenticated: auth }) => {
+      setAuthenticated(auth);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    if (!authenticated) return;
+    poll();
+    pollIntervalRef.current = setInterval(poll, 3000);
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, [authenticated]);
 
   if (!id) return null;
 
@@ -46,7 +68,7 @@ export default function SessionDashboard() {
     { key: "guion",      label: "Guión",      icon: "📜", hint: "El eje de la sesión" },
     { key: "assets",     label: "Assets",     icon: "🗃" },
     { key: "notes",      label: "Notas",      icon: "📝" },
-    { key: "soundboard", label: "Soundboard", icon: "🎵" },
+    { key: "soundboard", label: "Soundboard", icon: "🔊" },
     { key: "display",    label: "Proyección", icon: "🖥" },
     { key: "initiative", label: "Iniciativa",  icon: "⚔", hint: "Orden de combate" },
     { key: "spotify",    label: "Spotify",     icon: "🎵", hint: "Control de música" },
@@ -127,6 +149,9 @@ export default function SessionDashboard() {
         {activeTab === "initiative" && <InitiativeTracker />}
         {activeTab === "spotify"    && <SpotifyPanel />}
       </div>
+
+      {/* Mini Spotify player — always visible when authenticated */}
+      {authenticated && <MiniSpotifyPlayer />}
     </div>
   );
 }
