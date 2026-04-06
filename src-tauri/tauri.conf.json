@@ -38,9 +38,7 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "perMachine",
-        "displayLanguageSelector": false,
-        "languages": ["SpaES"]
+        "installMode": "currentUser"
       }
     }
   }
