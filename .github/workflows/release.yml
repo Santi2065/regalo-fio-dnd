@@ -6,10 +6,11 @@ on:
       - "v*"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -47,6 +48,8 @@ jobs:
             libssl-dev \
             pkg-config \
             libasound2-dev
+          # Verify pkg-config can find alsa
+          pkg-config --libs alsa
 
       - name: Install frontend dependencies
         run: npm ci
@@ -61,21 +64,22 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "DnD Orchestrator ${{ github.ref_name }}"
           releaseBody: |
             ## Instalación
 
-            **Windows:** descargá `DnD.Orchestrator_*_x64-setup.exe` y ejecutalo.
-            **Linux (Debian/Ubuntu):** `sudo dpkg -i DnD-Orchestrator_*_amd64.deb`
+            **Windows:** descargá `DnD Orchestrator_*_x64-setup.exe` y ejecutalo.
+            **Linux (Debian/Ubuntu):** `sudo dpkg -i "DnD Orchestrator_*_amd64.deb"`
 
             ### Requisitos
-            - **Windows:** Windows 10 o superior (WebView2 se instala automáticamente)
+            - **Windows:** Windows 10 o superior (WebView2 se instala automáticamente si no está)
             - **Linux:** GTK 4 + WebKit2GTK
 
-            ### Configuración Spotify
-            La primera vez necesitás conectar tu cuenta de Spotify desde la pestaña 🎵.
+            ### Spotify
+            La primera vez conectá tu cuenta desde la pestaña 🎵 dentro de la app.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
