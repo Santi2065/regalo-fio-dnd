@@ -143,4 +143,6 @@ sudo apt-get install -y \
 
 ## Licencia
 
-Proyecto personal. No destinado a distribución pública.
+MIT — ver [LICENSE](LICENSE).
+
+Originalmente un regalo personal, pero liberado como código abierto. Usalo, forkealo, adaptalo a tu mesa de juego.
