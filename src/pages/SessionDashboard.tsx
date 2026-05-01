@@ -11,6 +11,8 @@ import InitiativeTracker from "../components/InitiativeTracker";
 import MiniSpotifyPlayer from "../components/MiniSpotifyPlayer";
 import CharacterSheets from "../components/CharacterSheets";
 import HelpModal from "../components/HelpModal";
+import DiceOverlay from "../components/DiceOverlay";
+import GeneratorOverlay from "../components/GeneratorOverlay";
 import ManualSearch from "../components/ManualSearch";
 import type { Session } from "../lib/types";
 import { invoke } from "@tauri-apps/api/core";
@@ -70,6 +72,8 @@ export default function SessionDashboard() {
   );
   const [mode, setMode] = useState<Mode>("prep");
   const [helpOpen, setHelpOpen] = useState(false);
+  const [diceOpen, setDiceOpen] = useState(false);
+  const [generatorOpen, setGeneratorOpen] = useState(false);
   const [manualSearchOpen, setManualSearchOpen] = useState(false);
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -115,12 +119,25 @@ export default function SessionDashboard() {
   // ── Keyboard shortcuts ─────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Ctrl+K is the global search — debe funcionar incluso dentro del editor
-      // del guion o cualquier input. Lo chequeamos antes del guard de targets.
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setManualSearchOpen((v) => !v);
-        return;
+      // Global overlays — bypass the input-focus guard so podés tirar
+      // dados / generar mientras escribís el guión, o buscar en manuales.
+      if (e.ctrlKey || e.metaKey) {
+        const key = e.key.toLowerCase();
+        if (key === "r") {
+          e.preventDefault();
+          setDiceOpen((v) => !v);
+          return;
+        }
+        if (key === "g") {
+          e.preventDefault();
+          setGeneratorOpen((v) => !v);
+          return;
+        }
+        if (key === "k") {
+          e.preventDefault();
+          setManualSearchOpen((v) => !v);
+          return;
+        }
       }
 
       if (
@@ -434,6 +451,12 @@ export default function SessionDashboard() {
 
       {/* Help modal */}
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <DiceOverlay open={diceOpen} onClose={() => setDiceOpen(false)} />
+      <GeneratorOverlay
+        open={generatorOpen}
+        sessionId={id}
+        onClose={() => setGeneratorOpen(false)}
+      />
       <ManualSearch open={manualSearchOpen} onClose={() => setManualSearchOpen(false)} />
     </div>
   );
