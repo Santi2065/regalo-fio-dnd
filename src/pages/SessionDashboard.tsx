@@ -14,6 +14,9 @@ import HelpModal from "../components/HelpModal";
 import DiceOverlay from "../components/DiceOverlay";
 import GeneratorOverlay from "../components/GeneratorOverlay";
 import ManualSearch from "../components/ManualSearch";
+import CompanionDialog from "../components/CompanionDialog";
+import type { CompanionStatus } from "../lib/companion";
+import { companionStatus as fetchCompanionStatus } from "../lib/companion";
 import type { Session } from "../lib/types";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../lib/toast";
@@ -75,6 +78,8 @@ export default function SessionDashboard() {
   const [diceOpen, setDiceOpen] = useState(false);
   const [generatorOpen, setGeneratorOpen] = useState(false);
   const [manualSearchOpen, setManualSearchOpen] = useState(false);
+  const [companionOpen, setCompanionOpen] = useState(false);
+  const [companion, setCompanion] = useState<CompanionStatus | null>(null);
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -101,6 +106,14 @@ export default function SessionDashboard() {
     invoke<{ authenticated: boolean }>("spotify_status").then(({ authenticated: auth }) => {
       setAuthenticated(auth);
     });
+  }, []);
+
+  // Hidratamos el companion status al montar — el server podría seguir vivo
+  // de un dialog previo (p.ej. después de un hot-reload del frontend).
+  useEffect(() => {
+    fetchCompanionStatus()
+      .then(setCompanion)
+      .catch((e) => console.error("[Dashboard] companion status failed", e));
   }, []);
 
   useEffect(() => {
@@ -293,6 +306,38 @@ export default function SessionDashboard() {
         </div>
 
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+          <Tooltip
+            content={
+              companion?.running
+                ? `Companion activo · ${companion.connected_players} conectado${
+                    companion.connected_players === 1 ? "" : "s"
+                  }`
+                : "Compartir con jugadores via celu"
+            }
+            side="bottom"
+          >
+            <button
+              onClick={() => setCompanionOpen(true)}
+              className={`relative flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors ${
+                companion?.running
+                  ? "bg-success-900/40 text-success-300 hover:bg-success-900/60"
+                  : "text-vellum-300 hover:text-vellum-100 hover:bg-parchment-800"
+              }`}
+              aria-label="Companion para jugadores"
+            >
+              <span aria-hidden>📡</span>
+              {companion?.running ? (
+                <span className="font-medium tabular-nums">
+                  {companion.connected_players}
+                </span>
+              ) : (
+                <span>Compartir</span>
+              )}
+              {companion?.running && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-success-500 animate-pulse" />
+              )}
+            </button>
+          </Tooltip>
           <IconButton
             label="Atajos de teclado y sintaxis de cues"
             shortcut="Ctrl+?"
@@ -458,6 +503,12 @@ export default function SessionDashboard() {
         onClose={() => setGeneratorOpen(false)}
       />
       <ManualSearch open={manualSearchOpen} onClose={() => setManualSearchOpen(false)} />
+      <CompanionDialog
+        open={companionOpen}
+        campaignName={session?.name ?? "Sesión D&D"}
+        onClose={() => setCompanionOpen(false)}
+        onStatusChange={setCompanion}
+      />
     </div>
   );
 }

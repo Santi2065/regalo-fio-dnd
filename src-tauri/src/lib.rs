@@ -1,6 +1,7 @@
 mod assets;
 mod audio;
 mod combatants;
+mod companion;
 mod db;
 mod display;
 mod guion;
@@ -28,6 +29,7 @@ pub fn run() {
         .manage(AppState {
             db: Mutex::new(conn),
         })
+        .manage(Mutex::new(companion::CompanionState::new()))
         .invoke_handler(tauri::generate_handler![
             // Sessions
             session::get_sessions,
@@ -92,6 +94,11 @@ pub fn run() {
             display::project_scene,
             display::clear_player_display,
             display::player_display_open,
+            // Companion (player web companion)
+            companion::companion_start,
+            companion::companion_stop,
+            companion::companion_status,
+            companion::companion_generate_pin,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
