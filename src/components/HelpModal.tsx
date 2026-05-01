@@ -15,6 +15,13 @@ interface Shortcut {
 
 const SHORTCUTS: { group: string; items: Shortcut[] }[] = [
   {
+    group: "Herramientas en mesa",
+    items: [
+      { keys: ["Ctrl", "R"], description: "Tirar dados (1d20+5, 4d6kh3, adv...)" },
+      { keys: ["Ctrl", "G"], description: "Generar NPC, taberna, botín o clima" },
+    ],
+  },
+  {
     group: "Navegación principal",
     items: [
       { keys: ["Ctrl", "1"], description: "Ir a Guión" },

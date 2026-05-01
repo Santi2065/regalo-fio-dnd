@@ -11,6 +11,8 @@ import InitiativeTracker from "../components/InitiativeTracker";
 import MiniSpotifyPlayer from "../components/MiniSpotifyPlayer";
 import CharacterSheets from "../components/CharacterSheets";
 import HelpModal from "../components/HelpModal";
+import DiceOverlay from "../components/DiceOverlay";
+import GeneratorOverlay from "../components/GeneratorOverlay";
 import type { Session } from "../lib/types";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../lib/toast";
@@ -69,6 +71,8 @@ export default function SessionDashboard() {
   );
   const [mode, setMode] = useState<Mode>("prep");
   const [helpOpen, setHelpOpen] = useState(false);
+  const [diceOpen, setDiceOpen] = useState(false);
+  const [generatorOpen, setGeneratorOpen] = useState(false);
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -113,6 +117,22 @@ export default function SessionDashboard() {
   // ── Keyboard shortcuts ─────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Global overlays — bypass the input-focus guard so podés tirar
+      // dados / generar mientras escribís el guión.
+      if (e.ctrlKey || e.metaKey) {
+        const key = e.key.toLowerCase();
+        if (key === "r") {
+          e.preventDefault();
+          setDiceOpen((v) => !v);
+          return;
+        }
+        if (key === "g") {
+          e.preventDefault();
+          setGeneratorOpen((v) => !v);
+          return;
+        }
+      }
+
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement ||
@@ -424,6 +444,12 @@ export default function SessionDashboard() {
 
       {/* Help modal */}
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <DiceOverlay open={diceOpen} onClose={() => setDiceOpen(false)} />
+      <GeneratorOverlay
+        open={generatorOpen}
+        sessionId={id}
+        onClose={() => setGeneratorOpen(false)}
+      />
     </div>
   );
 }
