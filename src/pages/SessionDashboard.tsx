@@ -416,7 +416,7 @@ export default function SessionDashboard() {
                 <SoundboardPanel sessionId={id} compact />
               </div>
               <div className={toolTab === "display" ? "h-full" : "hidden"}>
-                <DisplayPanel sessionId={id} compact />
+                <DisplayPanel sessionId={id} />
               </div>
               <div className={toolTab === "initiative" ? "h-full" : "hidden"}>
                 <InitiativeTracker sessionId={id} />
