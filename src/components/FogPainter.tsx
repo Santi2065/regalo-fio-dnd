@@ -15,10 +15,18 @@ interface Props {
 
 type BrushMode = "reveal" | "hide";
 
+const BRUSH_PRESETS: { key: "sm" | "md" | "lg"; label: string; size: number }[] = [
+  { key: "sm", label: "S", size: 0.04 },
+  { key: "md", label: "M", size: 0.08 },
+  { key: "lg", label: "L", size: 0.14 },
+];
+
 export default function FogPainter({ scene }: Props) {
   const [fogEnabled, setFogEnabled] = useState(false);
   const [brushMode, setBrushMode] = useState<BrushMode>("reveal");
-  const [brushSize, setBrushSize] = useState(0.06); // normalized radius
+  const [brushSize, setBrushSize] = useState(0.08);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -69,7 +77,6 @@ export default function FogPainter({ scene }: Props) {
       points: [pt],
       radius: brushSize,
     };
-    // Immediately render the first circle
     const draft: FogState = {
       ...fogStateRef.current,
       strokes: [...fogStateRef.current.strokes, currentStrokeRef.current],
@@ -78,6 +85,9 @@ export default function FogPainter({ scene }: Props) {
   };
 
   const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setCursorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+
     if (!isDrawingRef.current || !currentStrokeRef.current || !fogEnabled) return;
     const pt = getPoint(e);
     currentStrokeRef.current.points.push(pt);
@@ -86,7 +96,6 @@ export default function FogPainter({ scene }: Props) {
       strokes: [...fogStateRef.current.strokes, currentStrokeRef.current],
     };
     renderFog(canvasRef.current!, draft, containerRef.current!.clientWidth, containerRef.current!.clientHeight);
-    // Throttled emit during drag
     emit("fog-update", draft);
   };
 
@@ -101,14 +110,16 @@ export default function FogPainter({ scene }: Props) {
     emitFog();
   };
 
+  const onMouseLeave = () => {
+    onMouseUp();
+    setCursorPos(null);
+  };
+
   const handleFullFog = () => {
-    // Replace all strokes with a single full-coverage "full fog" sentinel
     updateFog({ strokes: [] });
-    // Already covered by "enabled: true" + empty strokes = all black
   };
 
   const handleClearFog = () => {
-    // One giant reveal stroke covering the whole canvas
     const fullReveal: FogStroke = {
       type: "reveal",
       points: [
@@ -116,7 +127,7 @@ export default function FogPainter({ scene }: Props) {
         { x: 0.5, y: 0 }, { x: 0.5, y: 1 }, { x: 0, y: 0.5 }, { x: 1, y: 0.5 },
         { x: 0.5, y: 0.5 },
       ],
-      radius: 1.5, // large enough to cover everything
+      radius: 1.5,
     };
     updateFog({ strokes: [fullReveal] });
   };
@@ -135,8 +146,12 @@ export default function FogPainter({ scene }: Props) {
 
   const src = convertFileSrc(scene.file_path);
 
+  // Brush preview circle size in pixels (depends on container width)
+  const containerWidth = containerRef.current?.clientWidth ?? 0;
+  const previewRadiusPx = brushSize * containerWidth;
+
   return (
-    <div className="flex flex-col gap-3 h-full">
+    <div className="flex flex-col gap-2 h-full">
       {/* Controls */}
       <div className="flex items-center gap-2 flex-wrap">
         {/* Enable toggle */}
@@ -144,8 +159,8 @@ export default function FogPainter({ scene }: Props) {
           onClick={() => setFogEnabled((v) => !v)}
           className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
             fogEnabled
-              ? "bg-indigo-700 hover:bg-indigo-600 text-white"
-              : "bg-stone-700 hover:bg-stone-600 text-stone-300"
+              ? "bg-info-700 hover:bg-info-500 text-vellum-50"
+              : "bg-parchment-700 hover:bg-parchment-600 text-vellum-200"
           }`}
         >
           {fogEnabled ? "🌫 Niebla ON" : "🌫 Niebla OFF"}
@@ -154,75 +169,112 @@ export default function FogPainter({ scene }: Props) {
         {fogEnabled && (
           <>
             {/* Brush mode */}
-            <div className="flex rounded-lg overflow-hidden border border-stone-700">
+            <div className="flex rounded-lg overflow-hidden border border-parchment-700">
               <button
                 onClick={() => setBrushMode("reveal")}
+                title="Pintar para revelar zonas del mapa"
                 className={`px-3 py-1.5 text-xs transition-colors ${
                   brushMode === "reveal"
-                    ? "bg-amber-700 text-white"
-                    : "bg-stone-800 text-stone-400 hover:text-stone-200"
+                    ? "bg-gold-600 text-parchment-950"
+                    : "bg-parchment-800 text-vellum-300 hover:text-vellum-100"
                 }`}
               >
                 ☀ Revelar
               </button>
               <button
                 onClick={() => setBrushMode("hide")}
+                title="Pintar para volver a cubrir zonas"
                 className={`px-3 py-1.5 text-xs transition-colors ${
                   brushMode === "hide"
-                    ? "bg-stone-600 text-white"
-                    : "bg-stone-800 text-stone-400 hover:text-stone-200"
+                    ? "bg-parchment-600 text-vellum-50"
+                    : "bg-parchment-800 text-vellum-300 hover:text-vellum-100"
                 }`}
               >
                 🌑 Ocultar
               </button>
             </div>
 
-            {/* Brush size */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-stone-500">Pincel:</span>
-              <input
-                type="range"
-                min="1"
-                max="15"
-                value={Math.round(brushSize * 100)}
-                onChange={(e) => setBrushSize(Number(e.target.value) / 100)}
-                className="w-20 accent-amber-500"
-              />
+            {/* Brush size — presets */}
+            <div className="flex rounded-lg overflow-hidden border border-parchment-700">
+              {BRUSH_PRESETS.map((p) => {
+                const active = Math.abs(brushSize - p.size) < 0.005;
+                return (
+                  <button
+                    key={p.key}
+                    onClick={() => setBrushSize(p.size)}
+                    title={`Pincel ${p.label}`}
+                    className={`px-2.5 py-1.5 text-xs transition-colors min-w-[28px] ${
+                      active
+                        ? "bg-gold-600 text-parchment-950"
+                        : "bg-parchment-800 text-vellum-300 hover:text-vellum-100"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Actions */}
-            <button
-              onClick={handleClearFog}
-              title="Revelar todo el mapa"
-              className="px-3 py-1.5 rounded-lg text-xs bg-stone-700 hover:bg-stone-600 text-stone-300 transition-colors"
-            >
-              ☀ Todo visible
-            </button>
-            <button
-              onClick={handleFullFog}
-              title="Cubrir todo con niebla"
-              className="px-3 py-1.5 rounded-lg text-xs bg-stone-700 hover:bg-stone-600 text-stone-300 transition-colors"
-            >
-              🌑 Todo oculto
-            </button>
+            {/* Undo */}
             <button
               onClick={handleUndo}
               title="Deshacer último trazo"
-              className="px-3 py-1.5 rounded-lg text-xs bg-stone-700 hover:bg-stone-600 text-stone-300 transition-colors"
+              className="px-3 py-1.5 rounded-lg text-xs bg-parchment-700 hover:bg-parchment-600 text-vellum-200 transition-colors"
             >
               ↩ Deshacer
+            </button>
+
+            {/* Advanced toggle */}
+            <button
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="ml-auto px-2 py-1 rounded text-xs text-vellum-400 hover:text-vellum-100 transition-colors"
+            >
+              {showAdvanced ? "▴" : "▾"} Más opciones
             </button>
           </>
         )}
       </div>
 
+      {/* Advanced controls */}
+      {fogEnabled && showAdvanced && (
+        <div className="flex items-center gap-2 flex-wrap p-2 rounded-md bg-parchment-900/40 border border-parchment-800">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-vellum-300">Tamaño fino:</span>
+            <input
+              type="range"
+              min="1"
+              max="20"
+              value={Math.round(brushSize * 100)}
+              onChange={(e) => setBrushSize(Number(e.target.value) / 100)}
+              className="w-24 accent-gold-500"
+            />
+            <span className="text-[10px] text-vellum-400 tabular-nums w-7 text-right">
+              {Math.round(brushSize * 100)}
+            </span>
+          </div>
+          <button
+            onClick={handleClearFog}
+            title="Revelar todo el mapa"
+            className="px-2.5 py-1 rounded text-[11px] bg-parchment-800 hover:bg-parchment-700 text-vellum-200 transition-colors"
+          >
+            ☀ Todo visible
+          </button>
+          <button
+            onClick={handleFullFog}
+            title="Cubrir todo con niebla"
+            className="px-2.5 py-1 rounded text-[11px] bg-parchment-800 hover:bg-parchment-700 text-vellum-200 transition-colors"
+          >
+            🌑 Todo oculto
+          </button>
+        </div>
+      )}
+
       {/* Map canvas */}
       <div
         ref={containerRef}
-        className="relative flex-1 rounded-xl overflow-hidden bg-stone-900 select-none min-h-0"
-        style={{ cursor: fogEnabled ? (brushMode === "reveal" ? "crosshair" : "cell") : "default" }}
+        className="relative flex-1 rounded-xl overflow-hidden bg-parchment-900 select-none min-h-0"
+        style={{ cursor: fogEnabled ? "none" : "default" }}
       >
-        {/* Background image */}
         <img
           src={src}
           alt={scene.name}
@@ -230,7 +282,6 @@ export default function FogPainter({ scene }: Props) {
           draggable={false}
         />
 
-        {/* Fog canvas overlay */}
         <canvas
           ref={canvasRef}
           className="absolute inset-0"
@@ -238,12 +289,31 @@ export default function FogPainter({ scene }: Props) {
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
-          onMouseLeave={onMouseUp}
+          onMouseLeave={onMouseLeave}
         />
+
+        {/* Brush size preview */}
+        {fogEnabled && cursorPos && previewRadiusPx > 0 && (
+          <div
+            className="absolute pointer-events-none rounded-full border-2"
+            style={{
+              left: cursorPos.x - previewRadiusPx,
+              top: cursorPos.y - previewRadiusPx,
+              width: previewRadiusPx * 2,
+              height: previewRadiusPx * 2,
+              borderColor:
+                brushMode === "reveal" ? "rgba(212,167,84,0.85)" : "rgba(248,241,222,0.7)",
+              backgroundColor:
+                brushMode === "reveal"
+                  ? "rgba(212,167,84,0.10)"
+                  : "rgba(0,0,0,0.18)",
+            }}
+          />
+        )}
 
         {!fogEnabled && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <p className="text-stone-600 text-sm bg-stone-950/70 px-3 py-1 rounded-full">
+            <p className="text-vellum-300 text-sm bg-parchment-950/80 px-3 py-1.5 rounded-full border border-parchment-700">
               Activá la niebla para pintar
             </p>
           </div>

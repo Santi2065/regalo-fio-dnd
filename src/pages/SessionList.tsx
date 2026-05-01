@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../store/sessionStore";
 import { toast } from "../lib/toast";
-import { Button, Card, ConfirmDialog, IconButton, Tooltip } from "../components/ui";
+import { Button, Card, ConfirmDialog, IconButton, Skeleton, Tooltip } from "../components/ui";
 
 export default function SessionList() {
   const navigate = useNavigate();
@@ -162,7 +162,18 @@ export default function SessionList() {
 
         {/* Sessions list */}
         {loading ? (
-          <div className="text-center text-vellum-400 py-16">Cargando...</div>
+          <div className="grid gap-3" aria-label="Cargando sesiones">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Card key={i} padding="md" className="flex items-center justify-between">
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-1/2" />
+                  <Skeleton className="h-2.5 w-24 mt-1" />
+                </div>
+                <Skeleton className="h-5 w-5 ml-4" shape="circle" />
+              </Card>
+            ))}
+          </div>
         ) : sessions.length === 0 ? (
           // First-run: dual CTAs
           <div className="grid sm:grid-cols-2 gap-4 max-w-3xl mx-auto pt-8">

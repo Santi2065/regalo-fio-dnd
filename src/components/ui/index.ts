@@ -8,3 +8,4 @@ export { default as Card } from "./Card";
 export { default as Badge } from "./Badge";
 export { default as Tabs } from "./Tabs";
 export { default as KeyboardKey } from "./KeyboardKey";
+export { default as Skeleton } from "./Skeleton";
