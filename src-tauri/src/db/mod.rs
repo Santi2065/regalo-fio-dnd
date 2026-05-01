@@ -150,6 +150,29 @@ pub fn init(conn: &Connection) -> Result<()> {
 
         CREATE INDEX IF NOT EXISTS idx_sound_triggers_session
             ON sound_triggers(session_id, sort_order);
+
+        -- Chat de mesa (v1.6 sub-proyecto D.3): mensajes privados entre el DM
+        -- y los players, y entre players. El DM ve TODOS los chats incluso
+        -- los que aparentan ser entre players — esto es a propósito (los
+        -- players juegan con la sensación de privacidad pero el DM siempre
+        -- tiene contexto narrativo). Snapshot de nombres porque los tokens
+        -- son efímeros (cambian cada reconexión del companion).
+        CREATE TABLE IF NOT EXISTS companion_chats (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            sender_kind TEXT NOT NULL,        -- 'dm' | 'player'
+            sender_token TEXT,                -- NULL si sender_kind='dm'
+            sender_name TEXT NOT NULL,
+            recipient_kind TEXT NOT NULL,     -- 'dm' | 'player'
+            recipient_token TEXT,             -- NULL si recipient_kind='dm'
+            recipient_name TEXT NOT NULL,
+            content TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_chats_session_time
+            ON companion_chats(session_id, sent_at);
         ",
     )?;
 

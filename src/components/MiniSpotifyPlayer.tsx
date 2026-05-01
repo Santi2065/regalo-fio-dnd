@@ -18,7 +18,7 @@ function formatMs(ms: number) {
 }
 
 export default function MiniSpotifyPlayer() {
-  const { authenticated, setAuthenticated, track, poll } = useSpotifyStore();
+  const { authenticated, setAuthenticated, track, poll, lastError } = useSpotifyStore();
   const [volume, setVolume] = useState(50);
   const [muted, setMuted] = useState(false);
   const prevVolRef = useRef(volume);
@@ -289,10 +289,24 @@ export default function MiniSpotifyPlayer() {
               </p>
               <p className="text-[11px] text-vellum-400 truncate leading-tight">{track.artist}</p>
             </>
+          ) : lastError ? (
+            <>
+              <p className="text-xs font-medium text-danger-300 truncate leading-tight">
+                Spotify no responde
+              </p>
+              <p className="text-[11px] text-vellum-400 truncate leading-tight">
+                Probá <button onClick={handleLogout} className="underline hover:text-vellum-200">reconectar</button> · {lastError}
+              </p>
+            </>
           ) : (
-            <p className="text-xs text-vellum-400">
-              Elegí una playlist para empezar
-            </p>
+            <>
+              <p className="text-xs font-medium text-vellum-200 truncate leading-tight">
+                Sin reproducción activa
+              </p>
+              <p className="text-[11px] text-vellum-400 truncate leading-tight">
+                Abrí Spotify y dale play, o elegí una playlist acá
+              </p>
+            </>
           )}
         </div>
 
@@ -322,7 +336,8 @@ export default function MiniSpotifyPlayer() {
           </IconButton>
         </div>
 
-        {/* Volume */}
+        {/* Volume — el slider se esconde en ventanas chicas, queda solo el
+            mute toggle para no apretar el resto del header. */}
         <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
           <button
             onClick={toggleMute}
@@ -337,10 +352,10 @@ export default function MiniSpotifyPlayer() {
             max={100}
             value={effectiveVol}
             onChange={(e) => handleVolume(Number(e.target.value))}
-            className="w-20 accent-gold-500 cursor-pointer"
+            className="w-20 accent-gold-500 cursor-pointer hidden md:block"
             aria-label="Volumen"
           />
-          <span className="text-[10px] text-vellum-400 tabular-nums w-7 text-right hidden sm:block">
+          <span className="text-[10px] text-vellum-400 tabular-nums w-7 text-right hidden lg:block">
             {effectiveVol}%
           </span>
         </div>

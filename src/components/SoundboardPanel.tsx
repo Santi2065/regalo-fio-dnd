@@ -7,6 +7,8 @@ import {
   toggleLoop,
   stopLoop,
   stopAllAudio,
+  updateAmbientVolume,
+  useActiveLoops,
   channels,
 } from "../lib/audioController";
 import SoundTriggersSection from "./sound-triggers/SoundTriggersSection";
@@ -47,6 +49,7 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
   const [editingSlot, setEditingSlot] = useState<SoundboardSlot | null>(null);
   const [masterVolume, setMasterVolume] = useState(1.0);
   const [dragOverPos, setDragOverPos] = useState<number | null>(null);
+  const activeLoops = useActiveLoops();
 
   const loadSlots = useCallback(async () => {
     const data = await invoke<SoundboardSlot[]>("get_soundboard", { sessionId });
@@ -151,6 +154,27 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
       toast.error("No se pudo quitar la celda");
     }
   };
+
+  // ── Master volume → loops vivos ────────────────────────────────────────────
+  // Cuando el slider master cambia, ajustamos el volumen de los canales
+  // ambient activos sin recrearlos. Para los slots del soundboard usamos
+  // su volumen propio (slot.volume * masterVolume); para canales de otras
+  // superficies (cues del guion, sound triggers) asumimos volumen base 1.0
+  // así el slider master funciona como un atenuador global.
+  useEffect(() => {
+    const slotsByChannel = new Map<string, SoundboardSlot>();
+    for (const slot of slots) {
+      if (slot) slotsByChannel.set(channels.soundboardSlot(slot.id), slot);
+    }
+    for (const channel of activeLoops) {
+      const slot = slotsByChannel.get(channel);
+      const baseVol = slot ? slot.volume : 1.0;
+      const vol = baseVol * masterVolume;
+      updateAmbientVolume(channel, vol).catch((e) =>
+        console.warn("[SoundboardPanel] updateAmbientVolume failed", channel, e),
+      );
+    }
+  }, [masterVolume, activeLoops, slots]);
 
   // ── Global hotkey listener ─────────────────────────────────────────────────
   useEffect(() => {

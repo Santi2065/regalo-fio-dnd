@@ -16,8 +16,13 @@ import GeneratorOverlay from "../components/GeneratorOverlay";
 import ManualSearch from "../components/ManualSearch";
 import CompanionDialog from "../components/CompanionDialog";
 import SendHandoutDialog from "../components/SendHandoutDialog";
-import type { CompanionStatus } from "../lib/companion";
-import { companionStatus as fetchCompanionStatus } from "../lib/companion";
+import ChatPanel from "../components/companion/ChatPanel";
+import type { CompanionStatus, ChatMessage } from "../lib/companion";
+import {
+  companionStatus as fetchCompanionStatus,
+  companionGetChats,
+} from "../lib/companion";
+import { useChatStore, unreadCount } from "../store/chatStore";
 import type { Session } from "../lib/types";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../lib/toast";
@@ -84,6 +89,7 @@ export default function SessionDashboard() {
   const [companionOpen, setCompanionOpen] = useState(false);
   const [companion, setCompanion] = useState<CompanionStatus | null>(null);
   const [handoutOpen, setHandoutOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -120,20 +126,53 @@ export default function SessionDashboard() {
       .catch((e) => console.error("[Dashboard] companion status failed", e));
   }, []);
 
-  // Escuchar eventos del companion (dice rolls de los players, etc).
+  // Escuchar eventos del companion (dice rolls + chat de los players).
   useEffect(() => {
     let unlistenFn: (() => void) | null = null;
     import("@tauri-apps/api/event").then(({ listen }) => {
-      listen<{
-        type: string;
-        from_name?: string;
-        expression?: string;
-        total?: number;
-        breakdown?: string;
-      }>("companion-event", (event) => {
+      listen<
+        | {
+            type: "dice_roll";
+            from_name: string;
+            expression: string;
+            total: number;
+            breakdown: string;
+          }
+        | ({ type: "chat" } & ChatMessage & {
+            // El payload de DmEvent::Chat tiene `chat_id` no `id`. Lo
+            // mapeamos al guardar.
+            chat_id: string;
+          })
+        | { type: "player_connected" | "player_disconnected"; token: string; name: string }
+      >("companion-event", (event) => {
         const p = event.payload;
-        if (p.type === "dice_roll" && p.from_name) {
+        if (p.type === "dice_roll") {
           toast.info(`🎲 ${p.from_name}: ${p.expression} = ${p.total}`, 5000);
+        } else if (p.type === "chat") {
+          // Sumar al chatStore. Mapear chat_id → id para que coincida con
+          // el shape de ChatMessage que devuelve companion_get_chats.
+          const msg: ChatMessage = {
+            id: p.chat_id,
+            session_id: "", // el evento no incluye session_id pero estamos en la sesión activa
+            sender_kind: p.sender_kind,
+            sender_token: p.sender_token,
+            sender_name: p.sender_name,
+            recipient_kind: p.recipient_kind,
+            recipient_token: p.recipient_token,
+            recipient_name: p.recipient_name,
+            content: p.content,
+            sent_at: p.sent_at,
+          };
+          useChatStore.getState().addMessage(msg);
+          // Toast solo si el panel está cerrado, para no doble-notificar.
+          if (!chatOpen) {
+            const isWhisper = p.sender_kind === "player" && p.recipient_kind === "player";
+            const prefix = isWhisper ? "🕵" : "💬";
+            toast.info(
+              `${prefix} ${p.sender_name} → ${p.recipient_name}: ${p.content.slice(0, 60)}${p.content.length > 60 ? "..." : ""}`,
+              4000,
+            );
+          }
         }
       }).then((un) => {
         unlistenFn = un;
@@ -142,7 +181,22 @@ export default function SessionDashboard() {
     return () => {
       if (unlistenFn) unlistenFn();
     };
-  }, []);
+  }, [chatOpen]);
+
+  // Reset del chat store al cambiar de sesión + hidratar desde DB.
+  useEffect(() => {
+    useChatStore.getState().clear();
+    if (!id) return;
+    let cancelled = false;
+    companionGetChats(id)
+      .then((messages) => {
+        if (!cancelled) useChatStore.getState().setMessages(messages);
+      })
+      .catch((e) => console.warn("[SessionDashboard] hydrate chats failed", e));
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   // Reset live state al cambiar de sesión para que el sound-trigger engine
   // no dispare reglas con datos de la sesión anterior.
@@ -277,7 +331,8 @@ export default function SessionDashboard() {
             onClick={() => navigate("/")}
             className="text-vellum-400 hover:text-vellum-100 text-sm transition-colors flex-shrink-0 flex items-center gap-1"
           >
-            <span className="text-base">‹</span> Sesiones
+            <span className="text-base">‹</span>
+            <span className="hidden sm:inline">Sesiones</span>
           </button>
         </Tooltip>
         <span className="text-parchment-700">|</span>
@@ -306,44 +361,46 @@ export default function SessionDashboard() {
             </button>
           </form>
         ) : (
-          <Tooltip content="Click para renombrar la sesión" side="bottom">
-            <h1
-              className="font-display text-gold-400 cursor-pointer hover:text-gold-300 transition-colors truncate text-base font-semibold"
-              onClick={() => setEditing(true)}
-            >
-              {session?.name ?? "Cargando..."}
-            </h1>
-          </Tooltip>
+          <div className="flex-1 min-w-0 flex items-center gap-2">
+            <Tooltip content="Click para renombrar la sesión" side="bottom">
+              <h1
+                className="font-display text-gold-400 cursor-pointer hover:text-gold-300 transition-colors truncate text-base font-semibold min-w-0"
+                onClick={() => setEditing(true)}
+              >
+                {session?.name ?? "Cargando..."}
+              </h1>
+            </Tooltip>
+            {session?.description && (
+              <span className="text-vellum-400 text-sm truncate hidden lg:block min-w-0">
+                — {session.description}
+              </span>
+            )}
+          </div>
         )}
 
-        {session?.description && !editing && (
-          <span className="text-vellum-400 text-sm truncate hidden md:block flex-shrink-0">
-            — {session.description}
-          </span>
-        )}
-
-        {/* Mode toggle */}
+        {/* Mode toggle. En pantallas chicas se reduce a iconos para no ocupar
+            espacio del header. */}
         <div className="ml-auto flex-shrink-0 flex bg-parchment-800 rounded-lg p-0.5 gap-0.5">
           <Tooltip content="Modo edición — escribís el guión y configurás cues" side="bottom">
             <button
               onClick={() => handleModeChange("prep")}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+              className={`px-2 sm:px-3 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
                 mode === "prep"
                   ? "bg-parchment-600 text-vellum-50"
                   : "text-vellum-300 hover:text-vellum-100"
               }`}
             >
-              ✏️ Prep
+              ✏️<span className="hidden sm:inline"> Prep</span>
             </button>
           </Tooltip>
           <Tooltip content="Modo sesión — disparás cues mientras narrás" side="bottom">
             <button
               onClick={() => handleModeChange("live")}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+              className={`px-2 sm:px-3 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
                 mode === "live" ? "bg-gold-600 text-parchment-950" : "text-vellum-300 hover:text-vellum-100"
               }`}
             >
-              ▶ Live
+              ▶<span className="hidden sm:inline"> Live</span>
             </button>
           </Tooltip>
         </div>
@@ -374,13 +431,23 @@ export default function SessionDashboard() {
                   {companion.connected.length}
                 </span>
               ) : (
-                <span>Compartir</span>
+                <span className="hidden sm:inline">Compartir</span>
               )}
               {companion?.running && (
                 <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-success-500 animate-pulse" />
               )}
             </button>
           </Tooltip>
+
+          {/* Chat button — solo aparece con companion activo (regla
+              anti-saturación: si no hay players, el feature no existe). */}
+          {companion?.running && (
+            <ChatHeaderButton
+              onClick={() => setChatOpen((v) => !v)}
+              isOpen={chatOpen}
+            />
+          )}
+
           <IconButton
             label="Atajos de teclado y sintaxis de cues"
             shortcut="Ctrl+?"
@@ -548,11 +615,64 @@ export default function SessionDashboard() {
       <ManualSearch open={manualSearchOpen} onClose={() => setManualSearchOpen(false)} />
       <CompanionDialog
         open={companionOpen}
+        sessionId={id}
         campaignName={session?.name ?? "Sesión D&D"}
         onClose={() => setCompanionOpen(false)}
         onStatusChange={setCompanion}
       />
       <SendHandoutDialog open={handoutOpen} onClose={() => setHandoutOpen(false)} />
+      <ChatPanel
+        open={chatOpen && Boolean(companion?.running)}
+        sessionId={id}
+        connectedPlayers={companion?.connected ?? []}
+        onClose={() => setChatOpen(false)}
+      />
     </div>
   );
 }
+
+// ── ChatHeaderButton ─────────────────────────────────────────────────────────
+//
+// Wrapper chico para el botón del header. Subscribe al chatStore para mostrar
+// el badge de unread sin re-renderizar el dashboard entero en cada mensaje.
+// Lee `threads` y `lastRead` para sumar mensajes nuevos en TODOS los threads.
+
+function ChatHeaderButton({ onClick, isOpen }: { onClick: () => void; isOpen: boolean }) {
+  const totalUnread = useChatStore((s) => {
+    let total = 0;
+    for (const key of Object.keys(s.threads)) {
+      const messages = s.threads[key];
+      total += unreadCount(messages, s.lastRead[key]);
+    }
+    return total;
+  });
+
+  return (
+    <Tooltip
+      content={
+        totalUnread > 0
+          ? `Chat · ${totalUnread} mensaje${totalUnread === 1 ? "" : "s"} sin leer`
+          : "Chat de mesa (DM ve todo)"
+      }
+      side="bottom"
+    >
+      <button
+        onClick={onClick}
+        className={`relative flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors ${
+          isOpen
+            ? "bg-gold-700/40 text-gold-200"
+            : "text-vellum-300 hover:text-vellum-100 hover:bg-parchment-800"
+        }`}
+        aria-label="Chat de mesa"
+      >
+        <span aria-hidden>💬</span>
+        {totalUnread > 0 && (
+          <span className="bg-gold-500 text-parchment-950 text-[10px] rounded-full px-1.5 font-medium tabular-nums">
+            {totalUnread}
+          </span>
+        )}
+      </button>
+    </Tooltip>
+  );
+}
+

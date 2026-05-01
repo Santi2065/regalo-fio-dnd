@@ -20,7 +20,9 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
 use tower_http::cors::{Any, CorsLayer};
 
-use super::{Character, DmEvent, PlayerEvent, PublicState, ServerConnection};
+use super::{
+    Character, ChatMessage, DmEvent, PlayerEvent, PublicState, ServerConnection,
+};
 
 /// State compartido entre todos los handlers de axum. Empaqueta el state
 /// público (mutado desde Tauri commands) y el AppHandle (para emitir
@@ -267,6 +269,16 @@ async fn handle_socket(mut socket: WebSocket, token: String, public: Arc<Mutex<P
                         }
                     }
                     PlayerEvent::Kicked { to_token } => to_token == &token,
+                    PlayerEvent::Chat { recipient_token, sender_token, .. } => {
+                        // Solo entregamos al destinatario. NO al sender (ya
+                        // recibió ack via HTTP), NO al DM (recibe espejo via
+                        // DmEvent::Chat). Si el chat es al DM
+                        // (recipient_token == None), ningún celu lo recibe.
+                        match recipient_token {
+                            None => false,
+                            Some(rt) => rt == &token && sender_token.as_ref() != Some(&token),
+                        }
+                    }
                 };
                 if !should_deliver {
                     continue;
@@ -622,6 +634,176 @@ async fn ping_handler() -> impl IntoResponse {
     })
 }
 
+#[derive(Serialize)]
+struct ChatPartner {
+    kind: &'static str,        // "dm" | "player"
+    id: String,                // "dm" o el token del player
+    name: String,
+}
+
+async fn chat_partners_handler(
+    AxumState(ctx): AxumState<AppCtx>,
+    headers: HeaderMap,
+) -> Response {
+    let token = match extract_token(&headers) {
+        Some(t) => t,
+        None => return json_error(StatusCode::UNAUTHORIZED, "missing_token"),
+    };
+    let public = match ctx.public.lock() {
+        Ok(p) => p,
+        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "lock"),
+    };
+    if !public.connections.contains_key(&token) {
+        return json_error(StatusCode::UNAUTHORIZED, "invalid_token");
+    }
+    let mut partners: Vec<ChatPartner> = vec![ChatPartner {
+        kind: "dm",
+        id: "dm".to_string(),
+        name: "DM".to_string(),
+    }];
+    for (other_token, conn) in public.connections.iter() {
+        if other_token == &token {
+            continue;
+        }
+        partners.push(ChatPartner {
+            kind: "player",
+            id: other_token.clone(),
+            name: conn.character.name.clone(),
+        });
+    }
+    Json(partners).into_response()
+}
+
+// ── Chat desde el celu del player ───────────────────────────────────────────
+//
+// El player manda mensajes a "dm" (privado al DM) o a otro player token
+// (whisper que el otro player ve "privado", pero el DM también lo ve via
+// DmEvent::Chat — los players no lo saben, ese es el feature key).
+
+#[derive(Deserialize)]
+struct ChatRequest {
+    recipient_token: String, // "dm" o token de otro player
+    content: String,
+}
+
+#[derive(Serialize)]
+struct ChatResponse {
+    chat_id: String,
+    sent_at: String,
+}
+
+async fn chat_handler(
+    AxumState(ctx): AxumState<AppCtx>,
+    headers: HeaderMap,
+    AxumJson(req): AxumJson<ChatRequest>,
+) -> Response {
+    let token = match extract_token(&headers) {
+        Some(t) => t,
+        None => return json_error(StatusCode::UNAUTHORIZED, "missing_token"),
+    };
+
+    let trimmed = req.content.trim();
+    if trimmed.is_empty() {
+        return json_error(StatusCode::BAD_REQUEST, "empty_content");
+    }
+    if trimmed.len() > 2000 {
+        return json_error(StatusCode::BAD_REQUEST, "content_too_long");
+    }
+
+    // Validar sender + resolver recipient.
+    let (session_id, sender_name, recipient_kind, recipient_token, recipient_name) = {
+        let public = match ctx.public.lock() {
+            Ok(p) => p,
+            Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "lock"),
+        };
+        let session_id = match public.session_id.clone() {
+            Some(s) => s,
+            None => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "no_session"),
+        };
+        let sender_name = match public.connections.get(&token) {
+            Some(c) => c.character.name.clone(),
+            None => return json_error(StatusCode::UNAUTHORIZED, "invalid_token"),
+        };
+
+        if req.recipient_token == "dm" {
+            (session_id, sender_name, "dm".to_string(), None, "DM".to_string())
+        } else {
+            match public.connections.get(&req.recipient_token) {
+                Some(c) => (
+                    session_id,
+                    sender_name,
+                    "player".to_string(),
+                    Some(req.recipient_token.clone()),
+                    c.character.name.clone(),
+                ),
+                None => return json_error(StatusCode::BAD_REQUEST, "recipient_not_connected"),
+            }
+        }
+    };
+
+    let msg = ChatMessage {
+        id: uuid::Uuid::new_v4().to_string(),
+        session_id,
+        sender_kind: "player".to_string(),
+        sender_token: Some(token.clone()),
+        sender_name: sender_name.clone(),
+        recipient_kind: recipient_kind.clone(),
+        recipient_token: recipient_token.clone(),
+        recipient_name: recipient_name.clone(),
+        content: trimmed.to_string(),
+        sent_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    // Persist a DB. Accedemos al AppState via el AppHandle (cleaner que
+    // pasarlo en AppCtx — el server no necesita el AppState para nada más).
+    let app_state = match ctx.app.try_state::<crate::AppState>() {
+        Some(s) => s,
+        None => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "no_app_state"),
+    };
+    if let Err(e) = super::persist_chat(&app_state, &msg) {
+        eprintln!("[companion] persist chat failed: {e}");
+    }
+
+    // Push WS al destinatario (el handler filtra con recipient_token).
+    if let Ok(public) = ctx.public.lock() {
+        let _ = public.events.send(PlayerEvent::Chat {
+            chat_id: msg.id.clone(),
+            sender_kind: msg.sender_kind.clone(),
+            sender_token: msg.sender_token.clone(),
+            sender_name: msg.sender_name.clone(),
+            recipient_kind: msg.recipient_kind.clone(),
+            recipient_token: msg.recipient_token.clone(),
+            recipient_name: msg.recipient_name.clone(),
+            content: msg.content.clone(),
+            sent_at: msg.sent_at.clone(),
+        });
+    }
+
+    // Espejo al DM: el DM SIEMPRE recibe todos los mensajes, sin importar
+    // si el chat aparenta ser entre players. Ese es el "espionaje" que el
+    // user pidió explícitamente.
+    let _ = ctx.app.emit(
+        "companion-event",
+        DmEvent::Chat {
+            chat_id: msg.id.clone(),
+            sender_kind: msg.sender_kind.clone(),
+            sender_token: msg.sender_token.clone(),
+            sender_name: msg.sender_name.clone(),
+            recipient_kind: msg.recipient_kind.clone(),
+            recipient_token: msg.recipient_token.clone(),
+            recipient_name: msg.recipient_name.clone(),
+            content: msg.content.clone(),
+            sent_at: msg.sent_at.clone(),
+        },
+    );
+
+    Json(ChatResponse {
+        chat_id: msg.id,
+        sent_at: msg.sent_at,
+    })
+    .into_response()
+}
+
 async fn not_found() -> impl IntoResponse {
     json_error(StatusCode::NOT_FOUND, "not_found")
 }
@@ -650,6 +832,8 @@ pub async fn run(
         .route("/api/me", get(me_handler))
         .route("/api/disconnect", post(disconnect_handler))
         .route("/api/roll", post(roll_handler))
+        .route("/api/chat/send", post(chat_handler))
+        .route("/api/chat/partners", get(chat_partners_handler))
         .route("/api/ping", get(ping_handler))
         .route("/ws", get(ws_handler))
         .fallback(not_found)

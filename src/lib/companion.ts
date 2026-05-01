@@ -27,11 +27,13 @@ export interface CompanionStatus {
 }
 
 export const companionStart = (
+  sessionId: string,
   pin: string | null,
   campaignName: string | null,
   characters: Character[] | null
 ) =>
   invoke<CompanionInfo>("companion_start", {
+    sessionId,
     pin,
     campaignName,
     characters,
@@ -58,4 +60,36 @@ export const companionSendHandout = (
     toToken,
     title,
     body,
+  });
+
+// ── Chat (v1.6) ──────────────────────────────────────────────────────────────
+
+export interface ChatMessage {
+  id: string;
+  session_id: string;
+  sender_kind: "dm" | "player";
+  sender_token: string | null;
+  sender_name: string;
+  recipient_kind: "dm" | "player";
+  recipient_token: string | null;
+  recipient_name: string;
+  content: string;
+  sent_at: string;
+}
+
+export const companionSendChat = (
+  sessionId: string,
+  recipientToken: string,
+  content: string,
+) =>
+  invoke<ChatMessage>("companion_send_chat", {
+    sessionId,
+    recipientToken,
+    content,
+  });
+
+export const companionGetChats = (sessionId: string, limit?: number) =>
+  invoke<ChatMessage[]>("companion_get_chats", {
+    sessionId,
+    limit: limit ?? null,
   });

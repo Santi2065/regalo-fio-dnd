@@ -105,6 +105,8 @@ pub fn run() {
             companion::companion_set_characters,
             companion::companion_kick_player,
             companion::companion_send_handout,
+            companion::companion_send_chat,
+            companion::companion_get_chats,
             // Sound triggers (live mechanics)
             sound_triggers::get_sound_triggers,
             sound_triggers::set_sound_triggers,

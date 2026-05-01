@@ -60,6 +60,15 @@ export async function stopLoop(channel: string): Promise<void> {
 }
 
 /**
+ * Ajusta el volumen de un canal ambient ya en curso. Sin efecto si el
+ * canal no está activo. Usa el comando Rust `set_ambient_volume` que
+ * mutea el sink existente sin recrearlo (no hay hiccup en la música).
+ */
+export async function updateAmbientVolume(channel: string, volume: number): Promise<void> {
+  await invoke("set_ambient_volume", { channel, volume });
+}
+
+/**
  * Toggle a named looping channel. Returns true if the loop is now active,
  * false if it was just stopped.
  */
