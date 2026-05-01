@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../store/sessionStore";
 import { toast } from "../lib/toast";
+import { Button, Card, EmptyState, ConfirmDialog, IconButton } from "../components/ui";
 
 export default function SessionList() {
   const navigate = useNavigate();
@@ -11,6 +12,7 @@ export default function SessionList() {
   const [newDesc, setNewDesc] = useState("");
   const [creating, setCreating] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchSessions();
@@ -35,6 +37,7 @@ export default function SessionList() {
   };
 
   const handleDelete = async (id: string) => {
+    setDeleting(true);
     try {
       await deleteSession(id);
       setDeleteConfirm(null);
@@ -42,148 +45,160 @@ export default function SessionList() {
     } catch (e) {
       console.error("[SessionList] delete failed", e);
       toast.error("No se pudo eliminar la sesión");
+    } finally {
+      setDeleting(false);
     }
   };
 
-  const formatDate = (iso: string) => {
-    return new Date(iso).toLocaleDateString("es-AR", {
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString("es-AR", {
       year: "numeric",
       month: "short",
       day: "numeric",
     });
-  };
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100">
+    <div className="min-h-screen bg-parchment-950 text-vellum-50">
       {/* Header */}
-      <div className="border-b border-stone-800 bg-stone-900/50">
-        <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
+      <div className="border-b border-parchment-800 bg-parchment-900/60 backdrop-blur">
+        <div className="max-w-5xl mx-auto px-6 py-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-amber-400 tracking-wide">⚔ DnD Orchestrator</h1>
-            <p className="text-stone-400 text-sm mt-0.5">El cuartel general del Dungeon Master</p>
+            <h1 className="font-display text-3xl font-semibold text-gold-400 tracking-wide leading-tight">
+              <span className="text-gold-300 mr-1">⚔</span> DnD Orchestrator
+            </h1>
+            <p className="text-vellum-300 text-sm mt-1">
+              El cuartel general del Dungeon Master
+            </p>
           </div>
-          <button
-            onClick={() => setShowNew(true)}
-            className="bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm"
-          >
-            + Nueva Sesión
-          </button>
+          <Button variant="primary" size="md" onClick={() => setShowNew(true)} iconBefore="+">
+            Nueva Sesión
+          </Button>
         </div>
       </div>
 
       <div className="max-w-5xl mx-auto px-6 py-8">
         {/* New session form */}
         {showNew && (
-          <div className="mb-8 bg-stone-900 border border-stone-700 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-stone-100 mb-4">Nueva Sesión</h2>
-            <form onSubmit={handleCreate} className="space-y-3">
+          <Card raised padding="lg" className="mb-8">
+            <h2 className="font-display text-xl text-vellum-50 mb-4">Nueva Sesión</h2>
+            <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="block text-sm text-stone-400 mb-1">Nombre *</label>
+                <label className="block text-sm text-vellum-300 mb-1.5">
+                  Nombre <span className="text-danger-300">*</span>
+                </label>
                 <input
                   autoFocus
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="ej: Juntada 1 - La Taberna del Dragón"
-                  className="w-full bg-stone-800 border border-stone-600 rounded-lg px-3 py-2 text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500 text-sm"
+                  placeholder="ej: Juntada 1 — La Taberna del Dragón"
+                  className="w-full bg-parchment-800 border border-parchment-700 rounded-md px-3 py-2 text-vellum-50 placeholder-vellum-400 focus:outline-none focus:border-gold-500 text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm text-stone-400 mb-1">Descripción (opcional)</label>
+                <label className="block text-sm text-vellum-300 mb-1.5">
+                  Descripción <span className="text-vellum-400">(opcional)</span>
+                </label>
                 <textarea
                   value={newDesc}
                   onChange={(e) => setNewDesc(e.target.value)}
                   placeholder="Notas sobre esta sesión..."
                   rows={2}
-                  className="w-full bg-stone-800 border border-stone-600 rounded-lg px-3 py-2 text-stone-100 placeholder-stone-500 focus:outline-none focus:border-amber-500 text-sm resize-none"
+                  className="w-full bg-parchment-800 border border-parchment-700 rounded-md px-3 py-2 text-vellum-50 placeholder-vellum-400 focus:outline-none focus:border-gold-500 text-sm resize-none"
                 />
               </div>
               <div className="flex gap-2 pt-1">
-                <button
+                <Button
                   type="submit"
-                  disabled={!newName.trim() || creating}
-                  className="bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  variant="primary"
+                  disabled={!newName.trim()}
+                  loading={creating}
                 >
                   {creating ? "Creando..." : "Crear Sesión"}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  onClick={() => { setShowNew(false); setNewName(""); setNewDesc(""); }}
-                  className="bg-stone-700 hover:bg-stone-600 text-stone-300 px-4 py-2 rounded-lg text-sm transition-colors"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowNew(false);
+                    setNewName("");
+                    setNewDesc("");
+                  }}
                 >
                   Cancelar
-                </button>
+                </Button>
               </div>
             </form>
-          </div>
+          </Card>
         )}
 
         {/* Sessions list */}
         {loading ? (
-          <div className="text-center text-stone-500 py-16">Cargando...</div>
+          <div className="text-center text-vellum-400 py-16">Cargando...</div>
         ) : sessions.length === 0 ? (
-          <div className="text-center py-20">
-            <div className="text-6xl mb-4">🗺</div>
-            <h2 className="text-xl font-semibold text-stone-400 mb-2">Sin sesiones todavía</h2>
-            <p className="text-stone-500 text-sm">Crea tu primera sesión para empezar a organizar.</p>
-          </div>
+          <EmptyState
+            size="lg"
+            icon="🗺"
+            title="Aún no hay sesiones"
+            description="Crea tu primera sesión para empezar a organizar el juego."
+            action={
+              <Button variant="primary" onClick={() => setShowNew(true)} iconBefore="+">
+                Nueva Sesión
+              </Button>
+            }
+          />
         ) : (
           <div className="grid gap-3">
             {sessions.map((session) => (
-              <div
+              <Card
                 key={session.id}
-                className="group bg-stone-900 border border-stone-700 hover:border-stone-500 rounded-xl p-5 flex items-center justify-between transition-colors cursor-pointer"
+                interactive
+                padding="md"
                 onClick={() => navigate(`/session/${session.id}`)}
+                className="group flex items-center justify-between"
               >
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-stone-100 text-base truncate">{session.name}</h3>
+                  <h3 className="font-medium text-vellum-50 text-base truncate leading-tight">
+                    {session.name}
+                  </h3>
                   {session.description && (
-                    <p className="text-stone-400 text-sm mt-0.5 truncate">{session.description}</p>
+                    <p className="text-vellum-300 text-sm mt-0.5 truncate">
+                      {session.description}
+                    </p>
                   )}
-                  <p className="text-stone-600 text-xs mt-1">
+                  <p className="text-vellum-400 text-xs mt-1">
                     Actualizada {formatDate(session.updated_at)}
                   </p>
                 </div>
-                <div className="flex items-center gap-2 ml-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setDeleteConfirm(session.id); }}
-                    className="text-stone-500 hover:text-red-400 p-2 rounded-lg hover:bg-stone-800 transition-colors text-sm"
-                    title="Eliminar sesión"
+                <div className="flex items-center gap-1 ml-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <IconButton
+                    label="Eliminar sesión"
+                    variant="danger"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirm(session.id);
+                    }}
                   >
                     🗑
-                  </button>
-                  <span className="text-stone-600 text-lg">›</span>
+                  </IconButton>
+                  <span className="text-vellum-400 text-lg pl-1">›</span>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}
       </div>
 
-      {/* Delete confirmation modal */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-stone-900 border border-stone-700 rounded-xl p-6 max-w-sm w-full mx-4">
-            <h3 className="font-semibold text-stone-100 mb-2">¿Eliminar sesión?</h3>
-            <p className="text-stone-400 text-sm mb-4">
-              Se eliminarán todos los assets, notas y configuraciones de esta sesión. Esta acción no se puede deshacer.
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleDelete(deleteConfirm)}
-                className="flex-1 bg-red-800 hover:bg-red-700 text-white py-2 rounded-lg text-sm font-medium transition-colors"
-              >
-                Eliminar
-              </button>
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1 bg-stone-700 hover:bg-stone-600 text-stone-300 py-2 rounded-lg text-sm transition-colors"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={!!deleteConfirm}
+        title="¿Eliminar sesión?"
+        description="Se eliminarán todos los assets, notas y configuraciones de esta sesión. Esta acción no se puede deshacer."
+        confirmLabel="Eliminar"
+        danger
+        loading={deleting}
+        onCancel={() => setDeleteConfirm(null)}
+        onConfirm={() => deleteConfirm && handleDelete(deleteConfirm)}
+      />
     </div>
   );
 }
