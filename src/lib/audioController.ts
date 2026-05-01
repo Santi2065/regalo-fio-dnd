@@ -22,17 +22,20 @@ const useAudioStore = create<AudioStore>((set) => ({
   activeLoops: new Set<string>(),
   start: (channel) =>
     set((s) => {
+      if (s.activeLoops.has(channel)) return s;
       const next = new Set(s.activeLoops);
       next.add(channel);
       return { activeLoops: next };
     }),
   stop: (channel) =>
     set((s) => {
+      if (!s.activeLoops.has(channel)) return s;
       const next = new Set(s.activeLoops);
       next.delete(channel);
       return { activeLoops: next };
     }),
-  clear: () => set({ activeLoops: new Set<string>() }),
+  clear: () =>
+    set((s) => (s.activeLoops.size === 0 ? s : { activeLoops: new Set<string>() })),
 }));
 
 /** Fire a one-shot SFX. */

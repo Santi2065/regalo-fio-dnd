@@ -261,8 +261,6 @@ fn seed_soundboard(
 }
 
 fn seed_combatants(conn: &rusqlite::Connection, session_id: &str) -> Result<(), String> {
-    let timestamp = now();
-    let _ = timestamp; // not used in this insert path
     let combatants: &[(&str, &str, i32, i32, i32, &str)] = &[
         // (id, name, initiative, hp, max_hp, type)
         ("smp-cmb-aragorn", "Aragorn", 18, 28, 28, "player"),

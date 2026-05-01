@@ -75,7 +75,7 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
     });
   }, [sessionId]);
 
-  const handleTrigger = async (slot: SoundboardSlot, _position: number) => {
+  const handleTrigger = async (slot: SoundboardSlot) => {
     if (!slot.file_path) return;
 
     const vol = slot.volume * masterVolume;
@@ -165,7 +165,7 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
       for (const slot of slots) {
         if (slot && slot.hotkey && slot.hotkey.toLowerCase() === key) {
           e.preventDefault();
-          handleTrigger(slot, slot.slot_position);
+          handleTrigger(slot);
           return;
         }
       }
@@ -247,7 +247,7 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
                 isPlaying={slot ? playing.has(slot.id) : false}
                 isAmbient={slot ? ambient.has(slot.id) : false}
                 isDragOver={dragOverPos === i}
-                onTrigger={() => slot && handleTrigger(slot, i)}
+                onTrigger={() => slot && handleTrigger(slot)}
                 onRemove={() => slot && handleRemoveSlot(slot, i)}
                 onEdit={() => slot && setEditingSlot({ ...slot })}
                 onDragOver={() => setDragOverPos(i)}

@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Note } from "../lib/types";
 import { toast } from "../lib/toast";
+import { formatDateCompact } from "../lib/formatDate";
 
 interface Props {
   sessionId: string;
@@ -99,9 +100,6 @@ export default function NotesPanel({ sessionId, compact = false }: Props) {
   const isDirty =
     selectedNote &&
     (editContent !== selectedNote.content || editTitle !== selectedNote.title);
-
-  const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString("es-AR", { month: "short", day: "numeric" });
 
   if (compact) {
     return (
@@ -276,7 +274,7 @@ export default function NotesPanel({ sessionId, compact = false }: Props) {
                   </button>
                 </div>
                 <p className="text-xs text-stone-600 mt-0.5">
-                  {formatDate(note.updated_at)}
+                  {formatDateCompact(note.updated_at)}
                 </p>
               </div>
             ))

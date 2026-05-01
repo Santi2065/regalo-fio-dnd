@@ -14,6 +14,7 @@ import HelpModal from "../components/HelpModal";
 import type { Session } from "../lib/types";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../lib/toast";
+import { readJSON, writeJSON } from "../lib/persistence";
 import { IconButton, Tooltip } from "../components/ui";
 
 type MainSection = "guion" | "assets" | "personajes";
@@ -24,23 +25,12 @@ type PanelSize = "sm" | "md" | "lg";
 const PANEL_SIZES: Record<PanelSize, number> = { sm: 320, md: 400, lg: 480 };
 const LS_KEY = "dnd-dashboard-v2";
 
-function loadPrefs() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
+function loadPrefs(): Record<string, unknown> {
+  return readJSON<Record<string, unknown>>(LS_KEY, {});
 }
 
 function savePrefs(patch: Record<string, unknown>) {
-  try {
-    const prev = loadPrefs();
-    localStorage.setItem(LS_KEY, JSON.stringify({ ...prev, ...patch }));
-  } catch {
-    /* ignore */
-  }
+  writeJSON(LS_KEY, { ...loadPrefs(), ...patch });
 }
 
 const MAIN_NAV: { key: MainSection; icon: string; label: string; shortcut: string }[] = [

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useSpotifyStore, SPOTIFY_CLIENT_ID } from "../store/spotifyStore";
@@ -84,8 +84,9 @@ export default function MiniSpotifyPlayer() {
   const toggleMute = async () => {
     try {
       if (muted) {
-        const restored = volume > 0 ? volume : 50;
+        const restored = prevVolRef.current > 0 ? prevVolRef.current : 50;
         setMuted(false);
+        setVolume(restored);
         await invoke("spotify_set_volume", {
           clientId: SPOTIFY_CLIENT_ID,
           volumePercent: restored,
@@ -148,9 +149,12 @@ export default function MiniSpotifyPlayer() {
     }
   };
 
-  const filteredPlaylists = playlists.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredPlaylists = useMemo(() => {
+    if (!pickerOpen) return playlists;
+    const q = search.trim().toLowerCase();
+    if (!q) return playlists;
+    return playlists.filter((p) => p.name.toLowerCase().includes(q));
+  }, [playlists, search, pickerOpen]);
 
   const progress = track
     ? Math.min(100, (track.progress_ms / track.duration_ms) * 100)

@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useDebouncedEffect } from "../lib/useDebouncedEffect";
 
 interface Combatant {
   id: string;
@@ -64,9 +65,6 @@ export default function InitiativeTracker({ sessionId }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
-  const combatantsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // Add form state
   const [form, setForm] = useState({
     name: "",
@@ -119,55 +117,46 @@ export default function InitiativeTracker({ sessionId }: Props) {
   }, [sessionId]);
 
   // ── Debounced save: combatants ──────────────────────────────────────────
-  useEffect(() => {
-    if (!loaded || !sessionId) return;
-    if (combatantsSaveTimer.current) clearTimeout(combatantsSaveTimer.current);
-    combatantsSaveTimer.current = setTimeout(async () => {
-      try {
-        await invoke("set_combatants", {
-          sessionId,
-          combatants: combatants.map((c) => ({
-            id: c.id,
-            name: c.name,
-            initiative: c.initiative,
-            hp: c.hp,
-            max_hp: c.maxHp,
-            type: c.type,
-            conditions: c.conditions,
-            notes: c.notes,
-          })),
-        });
-      } catch (e) {
-        console.error("[InitiativeTracker] save combatants failed", e);
-      }
-    }, SAVE_DEBOUNCE_MS);
-    return () => {
-      if (combatantsSaveTimer.current) clearTimeout(combatantsSaveTimer.current);
-    };
-  }, [combatants, loaded, sessionId]);
+  useDebouncedEffect(
+    () => {
+      invoke("set_combatants", {
+        sessionId,
+        combatants: combatants.map((c) => ({
+          id: c.id,
+          name: c.name,
+          initiative: c.initiative,
+          hp: c.hp,
+          max_hp: c.maxHp,
+          type: c.type,
+          conditions: c.conditions,
+          notes: c.notes,
+        })),
+      }).catch((e) => console.error("[InitiativeTracker] save combatants failed", e));
+    },
+    [combatants, sessionId],
+    SAVE_DEBOUNCE_MS,
+    loaded && Boolean(sessionId)
+  );
 
   // ── Debounced save: combat state ─────────────────────────────────────────
-  useEffect(() => {
-    if (!loaded || !sessionId) return;
-    if (stateSaveTimer.current) clearTimeout(stateSaveTimer.current);
-    stateSaveTimer.current = setTimeout(async () => {
-      try {
-        await invoke("set_combat_state", {
-          sessionId,
-          currentTurn,
-          round,
-          customConditions,
-        });
-      } catch (e) {
-        console.error("[InitiativeTracker] save state failed", e);
-      }
-    }, SAVE_DEBOUNCE_MS);
-    return () => {
-      if (stateSaveTimer.current) clearTimeout(stateSaveTimer.current);
-    };
-  }, [currentTurn, round, customConditions, loaded, sessionId]);
+  useDebouncedEffect(
+    () => {
+      invoke("set_combat_state", {
+        sessionId,
+        currentTurn,
+        round,
+        customConditions,
+      }).catch((e) => console.error("[InitiativeTracker] save state failed", e));
+    },
+    [currentTurn, round, customConditions, sessionId],
+    SAVE_DEBOUNCE_MS,
+    loaded && Boolean(sessionId)
+  );
 
-  const sorted = [...combatants].sort((a, b) => b.initiative - a.initiative);
+  const sorted = useMemo(
+    () => [...combatants].sort((a, b) => b.initiative - a.initiative),
+    [combatants]
+  );
   const activeCombatant = sorted[currentTurn] ?? null;
 
   const addCombatants = () => {

@@ -33,6 +33,15 @@ export default function FogPainter({ scene }: Props) {
   const fogStateRef = useRef<FogState>({ enabled: false, strokes: [] });
   const isDrawingRef = useRef(false);
   const currentStrokeRef = useRef<FogStroke | null>(null);
+  const emitRafRef = useRef<number | null>(null);
+
+  const scheduleEmit = useCallback((draft: FogState) => {
+    if (emitRafRef.current !== null) return;
+    emitRafRef.current = requestAnimationFrame(() => {
+      emitRafRef.current = null;
+      emit("fog-update", draft);
+    });
+  }, []);
 
   const repaint = useCallback(() => {
     const canvas = canvasRef.current;
@@ -96,7 +105,7 @@ export default function FogPainter({ scene }: Props) {
       strokes: [...fogStateRef.current.strokes, currentStrokeRef.current],
     };
     renderFog(canvasRef.current!, draft, containerRef.current!.clientWidth, containerRef.current!.clientHeight);
-    emit("fog-update", draft);
+    scheduleEmit(draft);
   };
 
   const onMouseUp = () => {
@@ -107,6 +116,10 @@ export default function FogPainter({ scene }: Props) {
       strokes: [...fogStateRef.current.strokes, currentStrokeRef.current],
     };
     currentStrokeRef.current = null;
+    if (emitRafRef.current !== null) {
+      cancelAnimationFrame(emitRafRef.current);
+      emitRafRef.current = null;
+    }
     emitFog();
   };
 
@@ -141,7 +154,13 @@ export default function FogPainter({ scene }: Props) {
   useEffect(() => {
     const observer = new ResizeObserver(() => repaint());
     if (containerRef.current) observer.observe(containerRef.current);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (emitRafRef.current !== null) {
+        cancelAnimationFrame(emitRafRef.current);
+        emitRafRef.current = null;
+      }
+    };
   }, [repaint]);
 
   const src = convertFileSrc(scene.file_path);

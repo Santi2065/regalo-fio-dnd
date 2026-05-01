@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../store/sessionStore";
 import { toast } from "../lib/toast";
+import { formatDateShort } from "../lib/formatDate";
 import { Button, Card, ConfirmDialog, IconButton, Skeleton, Tooltip } from "../components/ui";
 
 export default function SessionList() {
@@ -65,13 +66,6 @@ export default function SessionList() {
       setDeleting(false);
     }
   };
-
-  const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString("es-AR", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
 
   return (
     <div className="min-h-screen bg-parchment-950 text-vellum-50">
@@ -240,7 +234,7 @@ export default function SessionList() {
                     </p>
                   )}
                   <p className="text-vellum-400 text-xs mt-1">
-                    Actualizada {formatDate(session.updated_at)}
+                    Actualizada {formatDateShort(session.updated_at)}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 ml-4 opacity-0 group-hover:opacity-100 transition-opacity">

@@ -6,6 +6,9 @@ import remarkGfm from "remark-gfm";
 import type { Asset } from "../lib/types";
 import { toast } from "../lib/toast";
 import { ConfirmDialog } from "./ui";
+import { readJSON, writeJSON, removeKey } from "../lib/persistence";
+import { useDebouncedEffect } from "../lib/useDebouncedEffect";
+import { formatDateTime } from "../lib/formatDate";
 import {
   playOneShot,
   toggleLoop,
@@ -20,11 +23,9 @@ import {
   type Cue,
 } from "../lib/guionParser";
 
-// ── Crash-recovery backup ──────────────────────────────────────────────────
-// While the user is typing in Prep mode we mirror unsaved content into
-// localStorage. On reload, if the local backup diverges from what's in the
-// database (typically because the app crashed before save_guion ran), we
-// offer to restore. Backup is cleared on every successful save.
+// Crash-recovery backup: mirror unsaved guion content to localStorage so
+// that if the app dies before save_guion runs, we can offer to restore on
+// next load. Cleared on every successful save.
 
 const BACKUP_KEY = (sessionId: string) => `guion-backup-${sessionId}`;
 const BACKUP_DEBOUNCE_MS = 800;
@@ -35,32 +36,19 @@ interface GuionBackup {
 }
 
 function readBackup(sessionId: string): GuionBackup | null {
-  try {
-    const raw = localStorage.getItem(BACKUP_KEY(sessionId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as GuionBackup;
-    if (typeof parsed.content !== "string") return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+  const data = readJSON<GuionBackup | null>(BACKUP_KEY(sessionId), null);
+  return data && typeof data.content === "string" ? data : null;
 }
 
 function writeBackup(sessionId: string, content: string) {
-  try {
-    const data: GuionBackup = { content, savedAt: new Date().toISOString() };
-    localStorage.setItem(BACKUP_KEY(sessionId), JSON.stringify(data));
-  } catch {
-    /* storage full / disabled — silently skip */
-  }
+  writeJSON(BACKUP_KEY(sessionId), {
+    content,
+    savedAt: new Date().toISOString(),
+  } satisfies GuionBackup);
 }
 
 function clearBackup(sessionId: string) {
-  try {
-    localStorage.removeItem(BACKUP_KEY(sessionId));
-  } catch {
-    /* ignore */
-  }
+  removeKey(BACKUP_KEY(sessionId));
 }
 
 interface Props {
@@ -76,7 +64,6 @@ export default function GuionEditor({ sessionId, mode }: Props) {
   const [loading, setLoading] = useState(true);
   const [recoveredBackup, setRecoveredBackup] = useState<GuionBackup | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const backupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Load guion + assets, check for crash-recovery backup ─────────────────
   useEffect(() => {
@@ -126,21 +113,17 @@ export default function GuionEditor({ sessionId, mode }: Props) {
     [sessionId, content]
   );
 
-  // ── Throttled local backup of unsaved changes ─────────────────────────────
+  // Local backup of unsaved changes for crash recovery.
   useEffect(() => {
-    if (loading) return;
-    if (content === savedContent) {
-      clearBackup(sessionId);
-      return;
-    }
-    if (backupTimerRef.current) clearTimeout(backupTimerRef.current);
-    backupTimerRef.current = setTimeout(() => {
-      writeBackup(sessionId, content);
-    }, BACKUP_DEBOUNCE_MS);
-    return () => {
-      if (backupTimerRef.current) clearTimeout(backupTimerRef.current);
-    };
+    if (!loading && content === savedContent) clearBackup(sessionId);
   }, [content, savedContent, sessionId, loading]);
+
+  useDebouncedEffect(
+    () => writeBackup(sessionId, content),
+    [content, sessionId],
+    BACKUP_DEBOUNCE_MS,
+    !loading && content !== savedContent
+  );
 
   // Auto-save Ctrl+S
   useEffect(() => {
@@ -154,12 +137,13 @@ export default function GuionEditor({ sessionId, mode }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [handleSave, mode]);
 
-  // Auto-save when switching to live
+  // Auto-save when switching to live. Depend on the latest handleSave so
+  // we don't capture a stale closure with old content.
   useEffect(() => {
     if (mode === "live" && content !== savedContent) {
       handleSave({ silent: true });
     }
-  }, [mode]);
+  }, [mode, content, savedContent, handleSave]);
 
   const isDirty = content !== savedContent;
 
@@ -171,11 +155,7 @@ export default function GuionEditor({ sessionId, mode }: Props) {
     const asset: Asset = JSON.parse(data);
 
     const cueType: CueType =
-      asset.asset_type === "image" || asset.asset_type === "video"
-        ? "project"
-        : asset.asset_type === "audio"
-        ? "sfx"
-        : "sfx";
+      asset.asset_type === "image" || asset.asset_type === "video" ? "project" : "sfx";
 
     const token = buildCueToken(cueType, asset.id, asset.name.replace(/\.[^.]+$/, ""));
     insertAtCursor(token);
@@ -273,7 +253,7 @@ export default function GuionEditor({ sessionId, mode }: Props) {
         title="¿Restaurar borrador local?"
         description={
           recoveredBackup
-            ? `Encontré cambios sin guardar en este guión (último intento: ${new Date(recoveredBackup.savedAt).toLocaleString("es-AR")}). Esto suele pasar si la app se cerró antes de guardar. ¿Querés recuperar esa versión?`
+            ? `Encontré cambios sin guardar en este guión (último intento: ${formatDateTime(recoveredBackup.savedAt)}). Esto suele pasar si la app se cerró antes de guardar. ¿Querés recuperar esa versión?`
             : ""
         }
         confirmLabel="Restaurar borrador"
@@ -454,11 +434,10 @@ function PrepAssetRow({ asset, defaultCueType, onInsert }: PrepAssetRowProps) {
 
 interface LiveProps {
   content: string;
-  sessionId: string;
   assets: Asset[];
 }
 
-function LiveMode({ content, assets }: Omit<LiveProps, "sessionId">) {
+function LiveMode({ content, assets }: LiveProps) {
   const [triggered, setTriggered] = useState<Set<string>>(new Set()); // assetId → triggered once
   const [ambientActive, setAmbientActive] = useState<Set<string>>(new Set()); // assetId → looping
   const [currentProject, setCurrentProject] = useState<string | null>(null); // assetId
