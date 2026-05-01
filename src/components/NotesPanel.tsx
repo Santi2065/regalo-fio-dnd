@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Note } from "../lib/types";
+import { toast } from "../lib/toast";
 
 interface Props {
   sessionId: string;
@@ -25,6 +26,9 @@ export default function NotesPanel({ sessionId, compact = false }: Props) {
     try {
       const result = await invoke<Note[]>("get_notes", { sessionId });
       setNotes(result);
+    } catch (e) {
+      console.error("[NotesPanel] fetch failed", e);
+      toast.error("No se pudieron cargar las notas");
     } finally {
       setLoading(false);
     }
@@ -41,7 +45,7 @@ export default function NotesPanel({ sessionId, compact = false }: Props) {
     setPreview(false);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (opts?: { silent?: boolean }) => {
     if (!selectedNote) return;
     setSaving(true);
     try {
@@ -52,6 +56,10 @@ export default function NotesPanel({ sessionId, compact = false }: Props) {
       });
       setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
       setSelectedNote(updated);
+      if (!opts?.silent) toast.success("Nota guardada");
+    } catch (e) {
+      console.error("[NotesPanel] save failed", e);
+      toast.error("No se pudo guardar la nota");
     } finally {
       setSaving(false);
     }
@@ -60,21 +68,32 @@ export default function NotesPanel({ sessionId, compact = false }: Props) {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
-    const note = await invoke<Note>("create_note", {
-      sessionId,
-      title: newTitle.trim(),
-      content: "",
-    });
-    setNotes((prev) => [note, ...prev]);
-    setNewTitle("");
-    setCreating(false);
-    selectNote(note);
+    try {
+      const note = await invoke<Note>("create_note", {
+        sessionId,
+        title: newTitle.trim(),
+        content: "",
+      });
+      setNotes((prev) => [note, ...prev]);
+      setNewTitle("");
+      setCreating(false);
+      selectNote(note);
+    } catch (e) {
+      console.error("[NotesPanel] create failed", e);
+      toast.error("No se pudo crear la nota");
+    }
   };
 
   const handleDelete = async (note: Note) => {
-    await invoke("delete_note", { id: note.id });
-    setNotes((prev) => prev.filter((n) => n.id !== note.id));
-    if (selectedNote?.id === note.id) setSelectedNote(null);
+    try {
+      await invoke("delete_note", { id: note.id });
+      setNotes((prev) => prev.filter((n) => n.id !== note.id));
+      if (selectedNote?.id === note.id) setSelectedNote(null);
+      toast.success("Nota eliminada");
+    } catch (e) {
+      console.error("[NotesPanel] delete failed", e);
+      toast.error("No se pudo eliminar la nota");
+    }
   };
 
   const isDirty =

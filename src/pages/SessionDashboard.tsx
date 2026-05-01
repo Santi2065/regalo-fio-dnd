@@ -13,6 +13,7 @@ import MiniSpotifyPlayer from "../components/MiniSpotifyPlayer";
 import CharacterSheets from "../components/CharacterSheets";
 import type { Session } from "../lib/types";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "../lib/toast";
 
 type MainSection = "guion" | "assets" | "personajes";
 type ToolTab = "soundboard" | "display" | "initiative" | "notes" | "spotify";
@@ -173,14 +174,24 @@ export default function SessionDashboard() {
   const handleRename = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editName.trim() || !session) return;
-    await updateSession(session.id, editName.trim(), session.description ?? undefined);
-    setEditing(false);
+    try {
+      await updateSession(session.id, editName.trim(), session.description ?? undefined);
+      setEditing(false);
+      toast.success("Sesión renombrada");
+    } catch (e) {
+      console.error("[SessionDashboard] rename failed", e);
+      toast.error("No se pudo renombrar la sesión");
+    }
   };
 
   const handleModeChange = (m: Mode) => {
+    if (m === mode) return;
     if (m === "live") {
       setMainSection("guion");
       setCollapsed(false);
+      toast.info("Modo Live · el guión queda en solo-lectura", 3000);
+    } else {
+      toast.info("Modo Prep · podés editar el guión", 1500);
     }
     setMode(m);
   };
@@ -365,7 +376,7 @@ export default function SessionDashboard() {
                 <DisplayPanel sessionId={id} compact />
               </div>
               <div className={toolTab === "initiative" ? "h-full" : "hidden"}>
-                <InitiativeTracker />
+                <InitiativeTracker sessionId={id} />
               </div>
               <div className={toolTab === "notes" ? "h-full" : "hidden"}>
                 <NotesPanel sessionId={id} compact />

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 interface Combatant {
   id: string;
@@ -11,7 +12,27 @@ interface Combatant {
   notes: string;
 }
 
-const CONDITIONS = ["Prone", "Stunned", "Poisoned", "Blinded", "Frightened", "Restrained", "Incapacitated", "Paralyzed", "Charmed", "Exhaustion"];
+interface RawCombatant {
+  id: string;
+  session_id: string;
+  name: string;
+  initiative: number;
+  hp: number;
+  max_hp: number;
+  type: string;
+  conditions: string[];
+  notes: string;
+  sort_order: number;
+}
+
+interface RawCombatState {
+  session_id: string;
+  current_turn: number;
+  round: number;
+  custom_conditions: string[];
+}
+
+const STANDARD_CONDITIONS = ["Prone", "Stunned", "Poisoned", "Blinded", "Frightened", "Restrained", "Incapacitated", "Paralyzed", "Charmed", "Exhaustion"];
 
 const TYPE_STYLES: Record<Combatant["type"], string> = {
   player:  "border-l-4 border-l-emerald-500",
@@ -27,13 +48,24 @@ const TYPE_BADGE: Record<Combatant["type"], string> = {
 let idCounter = 0;
 const uid = () => `c-${++idCounter}-${Date.now()}`;
 
-export default function InitiativeTracker() {
+const SAVE_DEBOUNCE_MS = 400;
+
+interface Props {
+  sessionId: string;
+}
+
+export default function InitiativeTracker({ sessionId }: Props) {
   const [combatants, setCombatants] = useState<Combatant[]>([]);
   const [currentTurn, setCurrentTurn] = useState(0);
   const [round, setRound] = useState(1);
+  const [customConditions, setCustomConditions] = useState<string[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [hpEdit, setHpEdit] = useState<{ id: string; delta: string } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  const combatantsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Add form state
   const [form, setForm] = useState({
@@ -43,6 +75,97 @@ export default function InitiativeTracker() {
     type: "enemy" as Combatant["type"],
     count: "1",
   });
+
+  const allConditions = [...STANDARD_CONDITIONS, ...customConditions];
+
+  // ── Load on mount / session change ──────────────────────────────────────
+  useEffect(() => {
+    if (!sessionId) return;
+    setLoaded(false);
+    let cancelled = false;
+    (async () => {
+      try {
+        const [rawCombatants, combatState] = await Promise.all([
+          invoke<RawCombatant[]>("get_combatants", { sessionId }),
+          invoke<RawCombatState>("get_combat_state", { sessionId }),
+        ]);
+        if (cancelled) return;
+        setCombatants(
+          rawCombatants.map((c) => ({
+            id: c.id,
+            name: c.name,
+            initiative: c.initiative,
+            hp: c.hp,
+            maxHp: c.max_hp,
+            type: (c.type === "player" || c.type === "enemy" || c.type === "neutral"
+              ? c.type
+              : "enemy") as Combatant["type"],
+            conditions: c.conditions ?? [],
+            notes: c.notes ?? "",
+          }))
+        );
+        setCurrentTurn(combatState.current_turn);
+        setRound(combatState.round);
+        setCustomConditions(combatState.custom_conditions ?? []);
+      } catch (e) {
+        console.error("[InitiativeTracker] load failed", e);
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  // ── Debounced save: combatants ──────────────────────────────────────────
+  useEffect(() => {
+    if (!loaded || !sessionId) return;
+    if (combatantsSaveTimer.current) clearTimeout(combatantsSaveTimer.current);
+    combatantsSaveTimer.current = setTimeout(async () => {
+      try {
+        await invoke("set_combatants", {
+          sessionId,
+          combatants: combatants.map((c) => ({
+            id: c.id,
+            name: c.name,
+            initiative: c.initiative,
+            hp: c.hp,
+            max_hp: c.maxHp,
+            type: c.type,
+            conditions: c.conditions,
+            notes: c.notes,
+          })),
+        });
+      } catch (e) {
+        console.error("[InitiativeTracker] save combatants failed", e);
+      }
+    }, SAVE_DEBOUNCE_MS);
+    return () => {
+      if (combatantsSaveTimer.current) clearTimeout(combatantsSaveTimer.current);
+    };
+  }, [combatants, loaded, sessionId]);
+
+  // ── Debounced save: combat state ─────────────────────────────────────────
+  useEffect(() => {
+    if (!loaded || !sessionId) return;
+    if (stateSaveTimer.current) clearTimeout(stateSaveTimer.current);
+    stateSaveTimer.current = setTimeout(async () => {
+      try {
+        await invoke("set_combat_state", {
+          sessionId,
+          currentTurn,
+          round,
+          customConditions,
+        });
+      } catch (e) {
+        console.error("[InitiativeTracker] save state failed", e);
+      }
+    }, SAVE_DEBOUNCE_MS);
+    return () => {
+      if (stateSaveTimer.current) clearTimeout(stateSaveTimer.current);
+    };
+  }, [currentTurn, round, customConditions, loaded, sessionId]);
 
   const sorted = [...combatants].sort((a, b) => b.initiative - a.initiative);
   const activeCombatant = sorted[currentTurn] ?? null;
@@ -57,7 +180,7 @@ export default function InitiativeTracker() {
     const news: Combatant[] = Array.from({ length: count }, (_, i) => ({
       id: uid(),
       name: count > 1 ? `${name} ${i + 1}` : name,
-      initiative: count > 1 ? init + Math.floor(Math.random() * 0) : init,
+      initiative: count > 1 ? init - 2 + Math.floor(Math.random() * 5) : init,
       hp,
       maxHp: hp,
       type: form.type,
@@ -383,7 +506,7 @@ export default function InitiativeTracker() {
                   {isExpanded && (
                     <div className="px-12 pb-3 space-y-2">
                       <div className="flex flex-wrap gap-1">
-                        {CONDITIONS.map((cond) => (
+                        {allConditions.map((cond) => (
                           <button
                             key={cond}
                             onClick={() => toggleCondition(c.id, cond)}

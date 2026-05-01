@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../store/sessionStore";
+import { toast } from "../lib/toast";
 
 export default function SessionList() {
   const navigate = useNavigate();
@@ -25,14 +26,23 @@ export default function SessionList() {
       setNewDesc("");
       setShowNew(false);
       navigate(`/session/${session.id}`);
+    } catch (e) {
+      console.error("[SessionList] create failed", e);
+      toast.error("No se pudo crear la sesión");
     } finally {
       setCreating(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    await deleteSession(id);
-    setDeleteConfirm(null);
+    try {
+      await deleteSession(id);
+      setDeleteConfirm(null);
+      toast.success("Sesión eliminada");
+    } catch (e) {
+      console.error("[SessionList] delete failed", e);
+      toast.error("No se pudo eliminar la sesión");
+    }
   };
 
   const formatDate = (iso: string) => {

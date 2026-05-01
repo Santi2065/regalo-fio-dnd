@@ -4,6 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Asset } from "../lib/types";
+import { toast } from "../lib/toast";
 import {
   parseGuion,
   buildCueToken,
@@ -30,23 +31,36 @@ export default function GuionEditor({ sessionId, mode }: Props) {
     Promise.all([
       invoke<{ content: string }>("get_guion", { sessionId }),
       invoke<Asset[]>("get_assets", { sessionId, assetTypeFilter: null }),
-    ]).then(([guion, allAssets]) => {
-      setContent(guion.content);
-      setSavedContent(guion.content);
-      setAssets(allAssets);
-      setLoading(false);
-    });
+    ])
+      .then(([guion, allAssets]) => {
+        setContent(guion.content);
+        setSavedContent(guion.content);
+        setAssets(allAssets);
+        setLoading(false);
+      })
+      .catch((e) => {
+        console.error("[GuionEditor] load failed", e);
+        toast.error("No se pudo cargar el guión");
+        setLoading(false);
+      });
   }, [sessionId]);
 
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    try {
-      await invoke("save_guion", { sessionId, content });
-      setSavedContent(content);
-    } finally {
-      setSaving(false);
-    }
-  }, [sessionId, content]);
+  const handleSave = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      setSaving(true);
+      try {
+        await invoke("save_guion", { sessionId, content });
+        setSavedContent(content);
+        if (!opts?.silent) toast.success("Guión guardado");
+      } catch (e) {
+        console.error("[GuionEditor] save failed", e);
+        toast.error("No se pudo guardar el guión");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [sessionId, content]
+  );
 
   // Auto-save Ctrl+S
   useEffect(() => {
@@ -63,7 +77,7 @@ export default function GuionEditor({ sessionId, mode }: Props) {
   // Auto-save when switching to live
   useEffect(() => {
     if (mode === "live" && content !== savedContent) {
-      handleSave();
+      handleSave({ silent: true });
     }
   }, [mode]);
 

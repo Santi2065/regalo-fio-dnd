@@ -76,6 +76,28 @@ pub fn init(conn: &Connection) -> Result<()> {
             updated_at TEXT NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS combatants (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            initiative INTEGER NOT NULL,
+            hp INTEGER NOT NULL,
+            max_hp INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            conditions TEXT DEFAULT '[]',
+            notes TEXT DEFAULT '',
+            sort_order INTEGER DEFAULT 0,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS session_state (
+            session_id TEXT PRIMARY KEY,
+            current_turn INTEGER DEFAULT 0,
+            round INTEGER DEFAULT 1,
+            custom_conditions TEXT DEFAULT '[]',
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
         ",
     )?;
 
