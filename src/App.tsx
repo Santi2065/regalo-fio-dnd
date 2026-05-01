@@ -2,6 +2,7 @@ import { HashRouter, Routes, Route } from "react-router-dom";
 import SessionList from "./pages/SessionList";
 import SessionDashboard from "./pages/SessionDashboard";
 import Toaster from "./components/Toaster";
+import UpdaterToast from "./components/UpdaterToast";
 
 function App() {
   return (
@@ -11,6 +12,7 @@ function App() {
         <Route path="/session/:id" element={<SessionDashboard />} />
       </Routes>
       <Toaster />
+      <UpdaterToast />
     </HashRouter>
   );
 }

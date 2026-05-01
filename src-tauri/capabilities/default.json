@@ -13,6 +13,9 @@
     "fs:write-files",
     "fs:allow-mkdir",
     "fs:allow-exists",
-    "fs:allow-remove"
+    "fs:allow-remove",
+    "updater:default",
+    "process:default",
+    "process:allow-restart"
   ]
 }

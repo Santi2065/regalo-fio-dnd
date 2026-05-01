@@ -20,6 +20,13 @@ dist-ssr
 .env.*
 !.env.example
 
+# Tauri auto-updater signing keys — la pública se commitea en
+# tauri.conf.json, la privada NUNCA. Va a GitHub Secrets.
+src-tauri/.tauri-updater.key
+src-tauri/.tauri-updater.key.pub
+*.tauri-updater.key
+*.tauri-updater.key.pub
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
