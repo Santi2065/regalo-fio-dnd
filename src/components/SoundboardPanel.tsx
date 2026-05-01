@@ -1,6 +1,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Asset } from "../lib/types";
+import { toast } from "../lib/toast";
+import {
+  playOneShot,
+  toggleLoop,
+  stopLoop,
+  stopAllAudio,
+  channels,
+} from "../lib/audioController";
 
 interface SoundboardSlot {
   id: string;
@@ -72,31 +80,30 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
 
     const vol = slot.volume * masterVolume;
 
-    if (slot.loop_enabled) {
-      // Toggle ambient
-      const channel = `ambient-${slot.id}`;
-      if (ambient.has(slot.id)) {
-        await invoke("stop_ambient", { channel });
+    try {
+      if (slot.loop_enabled) {
+        const channel = channels.soundboardSlot(slot.id);
+        const isNowActive = await toggleLoop(channel, slot.file_path, vol);
         setAmbient((prev) => {
           const next = new Map(prev);
-          next.delete(slot.id);
+          if (isNowActive) next.set(slot.id, channel);
+          else next.delete(slot.id);
           return next;
         });
       } else {
-        await invoke("play_ambient", { channel, filePath: slot.file_path, volume: vol });
-        setAmbient((prev) => new Map(prev).set(slot.id, channel));
+        setPlaying((prev) => new Set(prev).add(slot.id));
+        try {
+          await playOneShot(slot.file_path, vol);
+        } finally {
+          setTimeout(
+            () => setPlaying((prev) => { const n = new Set(prev); n.delete(slot.id); return n; }),
+            500
+          );
+        }
       }
-    } else {
-      // One-shot SFX
-      setPlaying((prev) => new Set(prev).add(slot.id));
-      try {
-        await invoke("play_sfx", { filePath: slot.file_path, volume: vol });
-      } finally {
-        setTimeout(
-          () => setPlaying((prev) => { const n = new Set(prev); n.delete(slot.id); return n; }),
-          500
-        );
-      }
+    } catch (e) {
+      console.error("[SoundboardPanel] trigger failed", e);
+      toast.error("No se pudo reproducir el sonido");
     }
   };
 
@@ -127,16 +134,21 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
   };
 
   const handleRemoveSlot = async (slot: SoundboardSlot, position: number) => {
-    if (ambient.has(slot.id)) {
-      await invoke("stop_ambient", { channel: `ambient-${slot.id}` });
-      setAmbient((prev) => { const n = new Map(prev); n.delete(slot.id); return n; });
+    try {
+      if (ambient.has(slot.id)) {
+        await stopLoop(channels.soundboardSlot(slot.id));
+        setAmbient((prev) => { const n = new Map(prev); n.delete(slot.id); return n; });
+      }
+      await invoke("remove_soundboard_slot", { id: slot.id });
+      setSlots((prev) => {
+        const next = [...prev];
+        next[position] = null;
+        return next;
+      });
+    } catch (e) {
+      console.error("[SoundboardPanel] remove slot failed", e);
+      toast.error("No se pudo quitar la celda");
     }
-    await invoke("remove_soundboard_slot", { id: slot.id });
-    setSlots((prev) => {
-      const next = [...prev];
-      next[position] = null;
-      return next;
-    });
   };
 
   // ── Global hotkey listener ─────────────────────────────────────────────────
@@ -179,9 +191,13 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
   };
 
   const stopAll = async () => {
-    await invoke("stop_all_audio");
-    setAmbient(new Map());
-    setPlaying(new Set());
+    try {
+      await stopAllAudio();
+      setAmbient(new Map());
+      setPlaying(new Set());
+    } catch (e) {
+      console.error("[SoundboardPanel] stopAll failed", e);
+    }
   };
 
   return (

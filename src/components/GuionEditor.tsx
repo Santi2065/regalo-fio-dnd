@@ -6,6 +6,12 @@ import remarkGfm from "remark-gfm";
 import type { Asset } from "../lib/types";
 import { toast } from "../lib/toast";
 import {
+  playOneShot,
+  toggleLoop,
+  stopAllAudio,
+  channels,
+} from "../lib/audioController";
+import {
   parseGuion,
   buildCueToken,
   CUE_META,
@@ -159,8 +165,9 @@ export default function GuionEditor({ sessionId, mode }: Props) {
         {mode === "live" && (
           <div className="ml-auto flex items-center gap-2">
             <button
-              onClick={() => invoke("stop_all_audio")}
+              onClick={() => stopAllAudio()}
               className="bg-red-900 hover:bg-red-800 text-red-200 px-3 py-1 rounded text-xs font-medium transition-colors"
+              title="Detener todos los SFX y ambientes que estén sonando"
             >
               ⏹ Stop todo
             </button>
@@ -364,25 +371,33 @@ function LiveMode({ content, assets }: Omit<LiveProps, "sessionId">) {
     const asset = assetMap[cue.assetId];
     if (!asset) return;
 
-    if (cue.type === "sfx") {
-      await invoke("play_sfx", { filePath: asset.file_path, volume: 1.0 });
-      setTriggered((prev) => new Set(prev).add(cue.assetId));
-    } else if (cue.type === "ambient") {
-      const channel = `ambient-${cue.assetId}`;
-      if (ambientActive.has(cue.assetId)) {
-        await invoke("stop_ambient", { channel });
-        setAmbientActive((prev) => { const n = new Set(prev); n.delete(cue.assetId); return n; });
-      } else {
-        await invoke("play_ambient", { channel, filePath: asset.file_path, volume: 1.0 });
-        setAmbientActive((prev) => new Set(prev).add(cue.assetId));
+    try {
+      if (cue.type === "sfx") {
+        await playOneShot(asset.file_path);
+        setTriggered((prev) => new Set(prev).add(cue.assetId));
+      } else if (cue.type === "ambient") {
+        const isNowActive = await toggleLoop(channels.scriptAmbient(cue.assetId), asset.file_path);
+        setAmbientActive((prev) => {
+          const n = new Set(prev);
+          if (isNowActive) n.add(cue.assetId);
+          else n.delete(cue.assetId);
+          return n;
+        });
+        if (isNowActive) setTriggered((prev) => new Set(prev).add(cue.assetId));
+      } else if (cue.type === "project") {
+        await invoke("project_scene", {
+          scene: { file_path: asset.file_path, asset_type: asset.asset_type, title: cue.label },
+        });
+        setCurrentProject(cue.assetId);
         setTriggered((prev) => new Set(prev).add(cue.assetId));
       }
-    } else if (cue.type === "project") {
-      await invoke("project_scene", {
-        scene: { file_path: asset.file_path, asset_type: asset.asset_type, title: cue.label },
-      });
-      setCurrentProject(cue.assetId);
-      setTriggered((prev) => new Set(prev).add(cue.assetId));
+    } catch (e) {
+      console.error("[GuionEditor] cue failed", cue, e);
+      toast.error(
+        cue.type === "project"
+          ? "No se pudo proyectar — ¿abriste la pantalla?"
+          : "No se pudo reproducir el audio"
+      );
     }
   };
 
@@ -416,7 +431,12 @@ function LiveMode({ content, assets }: Omit<LiveProps, "sessionId">) {
       <QuickSoundboard
         assets={audioAssets}
         onPlay={async (asset) => {
-          await invoke("play_sfx", { filePath: asset.file_path, volume: 1.0 });
+          try {
+            await playOneShot(asset.file_path);
+          } catch (e) {
+            console.error("[QuickSoundboard] playOneShot failed", e);
+            toast.error("No se pudo reproducir el audio");
+          }
         }}
       />
     </div>
@@ -511,25 +531,36 @@ function QuickSoundboard({ assets, onPlay }: QuickSoundboardProps) {
   const [ambients, setAmbients] = useState<Set<string>>(new Set());
 
   const handleClick = async (asset: Asset) => {
-    const channel = `quick-${asset.id}`;
     if (ambients.has(asset.id)) {
-      await invoke("stop_ambient", { channel });
-      setAmbients((prev) => { const n = new Set(prev); n.delete(asset.id); return n; });
+      try {
+        const isNowActive = await toggleLoop(channels.quickAmbient(asset.id), asset.file_path);
+        setAmbients((prev) => {
+          const n = new Set(prev);
+          if (isNowActive) n.add(asset.id);
+          else n.delete(asset.id);
+          return n;
+        });
+      } catch (e) {
+        console.error("[QuickSoundboard] toggleLoop failed", e);
+      }
     } else {
-      // Try as SFX first; if it's meant to loop, user can right-click (future enhancement)
       onPlay(asset);
     }
   };
 
   const handleContextMenu = async (e: React.MouseEvent, asset: Asset) => {
     e.preventDefault();
-    const channel = `quick-${asset.id}`;
-    if (ambients.has(asset.id)) {
-      await invoke("stop_ambient", { channel });
-      setAmbients((prev) => { const n = new Set(prev); n.delete(asset.id); return n; });
-    } else {
-      await invoke("play_ambient", { channel, filePath: asset.file_path, volume: 1.0 });
-      setAmbients((prev) => new Set(prev).add(asset.id));
+    try {
+      const isNowActive = await toggleLoop(channels.quickAmbient(asset.id), asset.file_path);
+      setAmbients((prev) => {
+        const n = new Set(prev);
+        if (isNowActive) n.add(asset.id);
+        else n.delete(asset.id);
+        return n;
+      });
+    } catch (err) {
+      console.error("[QuickSoundboard] toggleLoop failed", err);
+      toast.error("No se pudo iniciar el loop");
     }
   };
 
