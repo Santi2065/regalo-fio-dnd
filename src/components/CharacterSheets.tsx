@@ -1,7 +1,9 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 import type { Asset } from "../lib/types";
+import { toast } from "../lib/toast";
 
 interface Props {
   sessionId: string;
@@ -138,11 +140,7 @@ export default function CharacterSheets({ sessionId }: Props) {
                 className="w-full h-full object-contain bg-stone-950"
               />
             ) : selected.file_path.endsWith(".pdf") ? (
-              <iframe
-                src={convertFileSrc(selected.file_path)}
-                className="w-full h-full border-none"
-                title={selected.name}
-              />
+              <PdfViewer filePath={selected.file_path} title={selected.name} />
             ) : (
               <div className="flex items-center justify-center h-full text-stone-600 text-sm">
                 <div className="text-center">
@@ -190,6 +188,58 @@ function SheetCard({
         <p className="text-xs text-stone-300 truncate" title={sheet.name}>
           {sheet.name.replace(/\.[^.]+$/, "")}
         </p>
+      </div>
+    </div>
+  );
+}
+
+function PdfViewer({ filePath, title }: { filePath: string; title: string }) {
+  const [errored, setErrored] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  const openExternal = async () => {
+    try {
+      await openPath(filePath);
+    } catch (e) {
+      console.error("[PdfViewer] open external failed", e);
+      toast.error("No se pudo abrir el PDF en el visor externo");
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-stone-800 bg-stone-900/40 text-xs">
+        <span className="text-vellum-400 truncate">PDF · {title}</span>
+        <button
+          onClick={openExternal}
+          className="text-gold-400 hover:text-gold-300 transition-colors flex-shrink-0"
+        >
+          Abrir en visor externo ↗
+        </button>
+      </div>
+      <div className="flex-1 min-h-0 relative">
+        {errored ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center text-vellum-400 text-sm max-w-xs">
+              <div className="text-4xl mb-3 opacity-60">📄</div>
+              <p className="mb-3">No se pudo previsualizar el PDF dentro de la app.</p>
+              <button
+                onClick={openExternal}
+                className="bg-gold-600 hover:bg-gold-500 text-parchment-950 px-3 py-1.5 rounded-md text-xs font-medium"
+              >
+                Abrir en visor externo
+              </button>
+            </div>
+          </div>
+        ) : (
+          <iframe
+            ref={iframeRef}
+            src={convertFileSrc(filePath)}
+            className="w-full h-full border-none"
+            title={title}
+            onError={() => setErrored(true)}
+          />
+        )}
       </div>
     </div>
   );
