@@ -7,35 +7,38 @@
      viejos adopten el nuevo look automáticamente sin reescribir Tailwind.
    ────────────────────────────────────────────────────────────────────────── */
 @theme {
-  /* Pergamino oscuro (backgrounds) */
+  /* Pergamino — backgrounds y bordes. Subido +1 step de lightness vs v1.1.0
+     para que la app no se sienta opresivamente oscura, manteniendo el vibe. */
   --color-parchment-50:  #f8eed4;
   --color-parchment-100: #ecdcb0;
   --color-parchment-200: #d6bf85;
-  --color-parchment-300: #b8a274;
-  --color-parchment-400: #998560;
-  --color-parchment-500: #6b5a3e;
-  --color-parchment-600: #4a3d27;
-  --color-parchment-700: #322818;
-  --color-parchment-800: #221a10;
-  --color-parchment-900: #1a130b;
-  --color-parchment-950: #0e0a06;
+  --color-parchment-300: #c9b485;
+  --color-parchment-400: #ad9670;
+  --color-parchment-500: #7d6b4d;
+  --color-parchment-600: #5a4c33;
+  --color-parchment-700: #3d3120;
+  --color-parchment-800: #2d2218;
+  --color-parchment-900: #251c12;
+  --color-parchment-950: #18130c;
 
-  /* Vellum (text/foreground) */
+  /* Vellum (text/foreground). Bumped 300/400 para mejor contraste sobre
+     los bg cálidos. */
   --color-vellum-50:  #f8f1de;
   --color-vellum-100: #ebdfba;
   --color-vellum-200: #d6c391;
-  --color-vellum-300: #b8a274;
-  --color-vellum-400: #998560;
-  --color-vellum-500: #6b5a3e;
+  --color-vellum-300: #ccb482;
+  --color-vellum-400: #b09572;
+  --color-vellum-500: #7d6b4d;
 
-  /* Gold candil (acento principal) */
+  /* Gold candil (acento principal). Un toque más brillante para que
+     destaque sobre el bg ahora levemente más claro. */
   --color-gold-50:  #fdf3d8;
   --color-gold-100: #f9e3a8;
   --color-gold-200: #f3d076;
-  --color-gold-300: #ecbb47;
-  --color-gold-400: #dfa530;
-  --color-gold-500: #c98e25;
-  --color-gold-600: #a26a18;
+  --color-gold-300: #f0c14e;
+  --color-gold-400: #e5ad33;
+  --color-gold-500: #d39528;
+  --color-gold-600: #a87018;
   --color-gold-700: #7c4f0e;
   --color-gold-800: #5b3908;
   --color-gold-900: #3d2705;
@@ -68,29 +71,29 @@
   --color-info-700: #2f4868;
 
   /* ────────────────────────────────────────────────────────────────────────
-     Override stone (frío) → parchment (cálido)
-     Componentes viejos que usan stone-* recogen automáticamente la paleta nueva.
+     Override stone (frío) → parchment (cálido). Mismos valores que parchment-*
+     arriba para que componentes viejos hereden la nueva luminosidad.
      ──────────────────────────────────────────────────────────────────────── */
   --color-stone-50:  #f8f1de;
   --color-stone-100: #ebdfba;
   --color-stone-200: #d6c391;
-  --color-stone-300: #b8a274;
-  --color-stone-400: #998560;
-  --color-stone-500: #6b5a3e;
-  --color-stone-600: #4a3d27;
-  --color-stone-700: #322818;
-  --color-stone-800: #221a10;
-  --color-stone-900: #15100a;
-  --color-stone-950: #0a0703;
+  --color-stone-300: #ccb482;
+  --color-stone-400: #b09572;
+  --color-stone-500: #7d6b4d;
+  --color-stone-600: #5a4c33;
+  --color-stone-700: #3d3120;
+  --color-stone-800: #2d2218;
+  --color-stone-900: #251c12;
+  --color-stone-950: #18130c;
 
-  /* Override amber → gold candil (más cálido y dorado) */
+  /* Override amber → gold candil */
   --color-amber-50:  #fdf3d8;
   --color-amber-100: #fbe8b9;
   --color-amber-200: #f5d486;
-  --color-amber-300: #ecbf57;
-  --color-amber-400: #dfa83a;
-  --color-amber-500: #c98e25;
-  --color-amber-600: #a26a18;
+  --color-amber-300: #f0c14e;
+  --color-amber-400: #e5ad33;
+  --color-amber-500: #d39528;
+  --color-amber-600: #a87018;
   --color-amber-700: #7c4f0e;
   --color-amber-800: #5b3908;
   --color-amber-900: #3d2705;
@@ -117,7 +120,7 @@ body,
 }
 
 body {
-  background-color: #0e0a06;
+  background-color: #18130c;
   color: #f8f1de;
   font-family: var(--font-family-body);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
@@ -144,12 +147,12 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #322818;
+  background: #3d3120;
   border-radius: 4px;
-  border: 1px solid #1a130b;
+  border: 1px solid #251c12;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a3d27;
+  background: #5a4c33;
 }
 
 /* Drag over highlight */

@@ -47,7 +47,8 @@ export default function SessionList() {
       navigate(`/session/${session.id}`);
     } catch (e) {
       console.error("[SessionList] sample failed", e);
-      toast.error("No se pudo cargar la sesión de ejemplo");
+      const detail = typeof e === "string" ? e : (e as Error)?.message ?? "";
+      toast.error(detail ? `Sample falló: ${detail}` : "No se pudo cargar la sesión de ejemplo");
     } finally {
       setCreatingSample(false);
     }
