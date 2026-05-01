@@ -181,7 +181,7 @@ export default function DisplayPanel({ sessionId, compact = false }: Props) {
                     key={asset.id}
                     asset={asset}
                     isActive={currentScene?.id === asset.id}
-                    onProject={() => { handleProject(asset); if (asset.asset_type === "image") setRightTab("fog"); }}
+                    onProject={() => handleProject(asset)}
                   />
                 ))}
               </div>
@@ -366,10 +366,7 @@ export default function DisplayPanel({ sessionId, compact = false }: Props) {
                     key={asset.id}
                     asset={asset}
                     isActive={currentScene?.id === asset.id}
-                    onProject={() => {
-                      handleProject(asset);
-                      if (asset.asset_type === "image") setRightTab("fog");
-                    }}
+                    onProject={() => handleProject(asset)}
                   />
                 ))}
               </div>

@@ -7,6 +7,7 @@ interface SessionStore {
   loading: boolean;
   fetchSessions: () => Promise<void>;
   createSession: (name: string, description?: string) => Promise<Session>;
+  createSampleSession: () => Promise<Session>;
   updateSession: (id: string, name: string, description?: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
 }
@@ -27,6 +28,12 @@ export const useSessionStore = create<SessionStore>((set) => ({
 
   createSession: async (name, description) => {
     const session = await invoke<Session>("create_session", { name, description: description ?? null });
+    set((s) => ({ sessions: [session, ...s.sessions] }));
+    return session;
+  },
+
+  createSampleSession: async () => {
+    const session = await invoke<Session>("create_sample_session");
     set((s) => ({ sessions: [session, ...s.sessions] }));
     return session;
   },

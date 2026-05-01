@@ -2,15 +2,17 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../store/sessionStore";
 import { toast } from "../lib/toast";
-import { Button, Card, EmptyState, ConfirmDialog, IconButton } from "../components/ui";
+import { Button, Card, ConfirmDialog, IconButton, Tooltip } from "../components/ui";
 
 export default function SessionList() {
   const navigate = useNavigate();
-  const { sessions, loading, fetchSessions, createSession, deleteSession } = useSessionStore();
+  const { sessions, loading, fetchSessions, createSession, createSampleSession, deleteSession } =
+    useSessionStore();
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [creating, setCreating] = useState(false);
+  const [creatingSample, setCreatingSample] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -33,6 +35,20 @@ export default function SessionList() {
       toast.error("No se pudo crear la sesión");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleSample = async () => {
+    setCreatingSample(true);
+    try {
+      const session = await createSampleSession();
+      toast.success("Sesión de ejemplo cargada — abriendo...");
+      navigate(`/session/${session.id}`);
+    } catch (e) {
+      console.error("[SessionList] sample failed", e);
+      toast.error("No se pudo cargar la sesión de ejemplo");
+    } finally {
+      setCreatingSample(false);
     }
   };
 
@@ -70,9 +86,22 @@ export default function SessionList() {
               El cuartel general del Dungeon Master
             </p>
           </div>
-          <Button variant="primary" size="md" onClick={() => setShowNew(true)} iconBefore="+">
-            Nueva Sesión
-          </Button>
+          <div className="flex items-center gap-2">
+            <Tooltip content="Cargá una sesión pre-armada para ver cómo funciona todo" side="bottom">
+              <Button
+                variant="ghost"
+                size="md"
+                onClick={handleSample}
+                loading={creatingSample}
+                iconBefore="✨"
+              >
+                Sesión de ejemplo
+              </Button>
+            </Tooltip>
+            <Button variant="primary" size="md" onClick={() => setShowNew(true)} iconBefore="+">
+              Nueva Sesión
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -135,17 +164,51 @@ export default function SessionList() {
         {loading ? (
           <div className="text-center text-vellum-400 py-16">Cargando...</div>
         ) : sessions.length === 0 ? (
-          <EmptyState
-            size="lg"
-            icon="🗺"
-            title="Aún no hay sesiones"
-            description="Crea tu primera sesión para empezar a organizar el juego."
-            action={
-              <Button variant="primary" onClick={() => setShowNew(true)} iconBefore="+">
+          // First-run: dual CTAs
+          <div className="grid sm:grid-cols-2 gap-4 max-w-3xl mx-auto pt-8">
+            <Card
+              raised
+              padding="lg"
+              interactive
+              onClick={creatingSample ? undefined : handleSample}
+              className="text-center flex flex-col items-center gap-3 border-gold-700/40 bg-gradient-to-b from-gold-900/20 to-parchment-900"
+            >
+              <div className="text-5xl mt-2" aria-hidden>
+                ✨
+              </div>
+              <h3 className="font-display text-lg text-gold-300">Probá la sesión de ejemplo</h3>
+              <p className="text-vellum-300 text-sm leading-relaxed">
+                Una sesión pre-armada con guión, audio, mapas y combatientes para que veas
+                cómo funciona todo. Podés borrarla cuando quieras.
+              </p>
+              <Button
+                variant="primary"
+                onClick={handleSample}
+                loading={creatingSample}
+                iconBefore="▶"
+                className="mt-2"
+              >
+                Cargar ejemplo
+              </Button>
+            </Card>
+            <Card
+              padding="lg"
+              interactive
+              onClick={() => setShowNew(true)}
+              className="text-center flex flex-col items-center gap-3"
+            >
+              <div className="text-5xl mt-2 opacity-50" aria-hidden>
+                🗺
+              </div>
+              <h3 className="font-display text-lg text-vellum-100">Crear sesión vacía</h3>
+              <p className="text-vellum-300 text-sm leading-relaxed">
+                Empezá desde cero. Vas a tener que importar tus propios audios e imágenes.
+              </p>
+              <Button variant="secondary" onClick={() => setShowNew(true)} iconBefore="+" className="mt-2">
                 Nueva Sesión
               </Button>
-            }
-          />
+            </Card>
+          </div>
         ) : (
           <div className="grid gap-3">
             {sessions.map((session) => (

@@ -5,6 +5,7 @@ mod db;
 mod display;
 mod guion;
 mod notes;
+mod sample;
 mod session;
 mod spotify;
 
@@ -48,6 +49,8 @@ pub fn run() {
             combatants::clear_combatants,
             combatants::get_combat_state,
             combatants::set_combat_state,
+            // Sample session
+            sample::create_sample_session,
             // Guión
             guion::get_guion,
             guion::save_guion,

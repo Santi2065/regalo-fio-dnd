@@ -457,11 +457,11 @@ function SoundboardCell({
 
   return (
     <div
-      className={`relative rounded-xl border-2 aspect-square flex flex-col items-center justify-center p-3 transition-all select-none
-        ${isDragOver ? "border-amber-400 scale-105" : slot ? "border-transparent" : "border-stone-700 border-dashed"}
+      className={`group relative rounded-xl border-2 aspect-square flex flex-col items-center justify-center p-3 transition-all select-none
+        ${isDragOver ? "border-gold-400 scale-105 bg-gold-900/20" : slot ? "border-transparent" : "border-parchment-700 border-dashed hover:border-parchment-600"}
         ${slot ? "cursor-pointer hover:brightness-110 active:scale-95" : "cursor-default"}
-        ${isPlaying ? "ring-2 ring-white/60 scale-95" : ""}
-        ${isAmbient ? "ring-2 ring-green-400/60" : ""}
+        ${isPlaying ? "ring-2 ring-vellum-50/60 scale-95" : ""}
+        ${isAmbient ? "ring-2 ring-success-500/60" : ""}
       `}
       style={{ backgroundColor: slot ? bgColor + "33" : undefined, borderColor: slot ? bgColor : undefined }}
       onClick={onTrigger}
@@ -469,35 +469,50 @@ function SoundboardCell({
       onDragOver={handleDragOver}
       onDragLeave={onDragLeave}
       onDrop={handleDrop}
+      title={slot ? "Click = disparar · Click derecho = editar" : "Arrastrá un audio aquí"}
     >
       {slot ? (
         <>
           <div className="text-2xl mb-1">
             {isAmbient ? "🎵" : slot.loop_enabled ? "🔁" : "🔊"}
           </div>
-          <p className="text-xs text-center text-stone-200 font-medium leading-tight truncate w-full text-center">
+          <p className="text-xs text-center text-vellum-100 font-medium leading-tight truncate w-full">
             {slot.label ?? slot.asset_name ?? "—"}
           </p>
           {slot.loop_enabled && (
-            <span className="text-xs text-stone-500 mt-0.5">
-              {isAmbient ? "▶ playing" : "loop"}
+            <span className="text-[10px] text-vellum-300 mt-0.5">
+              {isAmbient ? "▶ sonando" : "loop"}
             </span>
           )}
           {slot.hotkey && (
-            <kbd className="absolute bottom-1 right-1 bg-black/40 text-stone-400 text-[9px] px-1 rounded font-mono leading-tight">
+            <kbd className="absolute bottom-1 right-1 bg-parchment-950/70 text-gold-300 text-[9px] px-1 rounded font-mono leading-tight border border-parchment-700">
               {slot.hotkey}
             </kbd>
           )}
 
+          {/* Right-click hint: small dots top-left, fade in on hover */}
+          <span
+            className="absolute top-1 left-1.5 text-vellum-400/60 text-[10px] leading-none opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+            aria-hidden
+          >
+            ⋯
+          </span>
+
           <button
             onClick={(e) => { e.stopPropagation(); onRemove(); }}
-            className="absolute top-1 right-1 text-stone-600 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-opacity w-4 h-4 flex items-center justify-center"
+            className="absolute top-1 right-1 text-vellum-400 hover:text-danger-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity w-4 h-4 flex items-center justify-center"
+            title="Quitar de la celda"
           >
             ×
           </button>
         </>
       ) : (
-        <div className="text-stone-700 text-2xl">+</div>
+        <>
+          <div className="text-parchment-600 text-2xl leading-none">+</div>
+          <p className="text-[10px] text-vellum-400/60 mt-1 text-center leading-tight">
+            Arrastrá un audio
+          </p>
+        </>
       )}
     </div>
   );
