@@ -19,6 +19,7 @@ const SHORTCUTS: { group: string; items: Shortcut[] }[] = [
     items: [
       { keys: ["Ctrl", "R"], description: "Tirar dados (1d20+5, 4d6kh3, adv...)" },
       { keys: ["Ctrl", "G"], description: "Generar NPC, taberna, botín o clima" },
+      { keys: ["Ctrl", "K"], description: "Buscar en los manuales cargados" },
     ],
   },
   {
@@ -36,7 +37,6 @@ const SHORTCUTS: { group: string; items: Shortcut[] }[] = [
       { keys: ["Ctrl", "5"], description: "Proyección" },
       { keys: ["Ctrl", "6"], description: "Iniciativa" },
       { keys: ["Ctrl", "7"], description: "Notas" },
-      { keys: ["Ctrl", "8"], description: "Spotify" },
       { keys: ["Ctrl", "\\"], description: "Colapsar / expandir panel" },
     ],
   },

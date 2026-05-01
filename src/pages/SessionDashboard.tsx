@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSessionStore } from "../store/sessionStore";
 import { useSpotifyStore } from "../store/spotifyStore";
-import AssetBrowser from "../components/AssetBrowser";
+import LibraryBrowser from "../components/LibraryBrowser";
 import NotesPanel from "../components/NotesPanel";
 import SoundboardPanel from "../components/SoundboardPanel";
 import DisplayPanel from "../components/DisplayPanel";
@@ -13,6 +13,7 @@ import CharacterSheets from "../components/CharacterSheets";
 import HelpModal from "../components/HelpModal";
 import DiceOverlay from "../components/DiceOverlay";
 import GeneratorOverlay from "../components/GeneratorOverlay";
+import ManualSearch from "../components/ManualSearch";
 import type { Session } from "../lib/types";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../lib/toast";
@@ -73,6 +74,7 @@ export default function SessionDashboard() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [diceOpen, setDiceOpen] = useState(false);
   const [generatorOpen, setGeneratorOpen] = useState(false);
+  const [manualSearchOpen, setManualSearchOpen] = useState(false);
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -118,7 +120,7 @@ export default function SessionDashboard() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // Global overlays — bypass the input-focus guard so podés tirar
-      // dados / generar mientras escribís el guión.
+      // dados / generar mientras escribís el guión, o buscar en manuales.
       if (e.ctrlKey || e.metaKey) {
         const key = e.key.toLowerCase();
         if (key === "r") {
@@ -129,6 +131,11 @@ export default function SessionDashboard() {
         if (key === "g") {
           e.preventDefault();
           setGeneratorOpen((v) => !v);
+          return;
+        }
+        if (key === "k") {
+          e.preventDefault();
+          setManualSearchOpen((v) => !v);
           return;
         }
       }
@@ -339,7 +346,7 @@ export default function SessionDashboard() {
             <GuionEditor sessionId={id} mode={mode} />
           </div>
           <div className={mainSection === "assets" ? "h-full" : "hidden"}>
-            <AssetBrowser sessionId={id} />
+            <LibraryBrowser sessionId={id} />
           </div>
           <div className={mainSection === "personajes" ? "h-full" : "hidden"}>
             <CharacterSheets sessionId={id} />
@@ -450,6 +457,7 @@ export default function SessionDashboard() {
         sessionId={id}
         onClose={() => setGeneratorOpen(false)}
       />
+      <ManualSearch open={manualSearchOpen} onClose={() => setManualSearchOpen(false)} />
     </div>
   );
 }

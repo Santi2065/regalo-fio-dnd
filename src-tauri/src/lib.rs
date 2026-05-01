@@ -4,6 +4,7 @@ mod combatants;
 mod db;
 mod display;
 mod guion;
+mod manuals;
 mod notes;
 mod sample;
 mod session;
@@ -51,6 +52,11 @@ pub fn run() {
             combatants::set_combat_state,
             // Sample session
             sample::create_sample_session,
+            // Knowledge Base — manuales
+            manuals::get_manuals,
+            manuals::import_manual,
+            manuals::delete_manual,
+            manuals::search_manuals,
             // Guión
             guion::get_guion,
             guion::save_guion,

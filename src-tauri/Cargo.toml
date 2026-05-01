@@ -38,4 +38,7 @@ base64 = "0.22"
 rand = "0.8"
 url = "2"
 urlencoding = "2"
+# Knowledge Base (v1.2): PDF extraction + unicode normalization
+pdf-extract = "0.7"
+unicode-normalization = "0.1"
 
