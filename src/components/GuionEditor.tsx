@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Asset } from "../lib/types";
 import { toast } from "../lib/toast";
+import { ConfirmDialog } from "./ui";
 import {
   playOneShot,
   toggleLoop,
@@ -19,6 +20,49 @@ import {
   type Cue,
 } from "../lib/guionParser";
 
+// ── Crash-recovery backup ──────────────────────────────────────────────────
+// While the user is typing in Prep mode we mirror unsaved content into
+// localStorage. On reload, if the local backup diverges from what's in the
+// database (typically because the app crashed before save_guion ran), we
+// offer to restore. Backup is cleared on every successful save.
+
+const BACKUP_KEY = (sessionId: string) => `guion-backup-${sessionId}`;
+const BACKUP_DEBOUNCE_MS = 800;
+
+interface GuionBackup {
+  content: string;
+  savedAt: string;
+}
+
+function readBackup(sessionId: string): GuionBackup | null {
+  try {
+    const raw = localStorage.getItem(BACKUP_KEY(sessionId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as GuionBackup;
+    if (typeof parsed.content !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeBackup(sessionId: string, content: string) {
+  try {
+    const data: GuionBackup = { content, savedAt: new Date().toISOString() };
+    localStorage.setItem(BACKUP_KEY(sessionId), JSON.stringify(data));
+  } catch {
+    /* storage full / disabled — silently skip */
+  }
+}
+
+function clearBackup(sessionId: string) {
+  try {
+    localStorage.removeItem(BACKUP_KEY(sessionId));
+  } catch {
+    /* ignore */
+  }
+}
+
 interface Props {
   sessionId: string;
   mode: "prep" | "live";
@@ -30,9 +74,11 @@ export default function GuionEditor({ sessionId, mode }: Props) {
   const [saving, setSaving] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [recoveredBackup, setRecoveredBackup] = useState<GuionBackup | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const backupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Load guion + assets ───────────────────────────────────────────────────
+  // ── Load guion + assets, check for crash-recovery backup ─────────────────
   useEffect(() => {
     Promise.all([
       invoke<{ content: string }>("get_guion", { sessionId }),
@@ -43,6 +89,17 @@ export default function GuionEditor({ sessionId, mode }: Props) {
         setSavedContent(guion.content);
         setAssets(allAssets);
         setLoading(false);
+
+        // Crash recovery: if a backup exists and it differs from what's in
+        // the DB, the app probably died before save_guion ran. Offer to
+        // restore the local copy.
+        const backup = readBackup(sessionId);
+        if (backup && backup.content !== guion.content) {
+          setRecoveredBackup(backup);
+        } else if (backup) {
+          // Backup matches DB — already saved successfully, just clear it.
+          clearBackup(sessionId);
+        }
       })
       .catch((e) => {
         console.error("[GuionEditor] load failed", e);
@@ -57,6 +114,7 @@ export default function GuionEditor({ sessionId, mode }: Props) {
       try {
         await invoke("save_guion", { sessionId, content });
         setSavedContent(content);
+        clearBackup(sessionId);
         if (!opts?.silent) toast.success("Guión guardado");
       } catch (e) {
         console.error("[GuionEditor] save failed", e);
@@ -67,6 +125,22 @@ export default function GuionEditor({ sessionId, mode }: Props) {
     },
     [sessionId, content]
   );
+
+  // ── Throttled local backup of unsaved changes ─────────────────────────────
+  useEffect(() => {
+    if (loading) return;
+    if (content === savedContent) {
+      clearBackup(sessionId);
+      return;
+    }
+    if (backupTimerRef.current) clearTimeout(backupTimerRef.current);
+    backupTimerRef.current = setTimeout(() => {
+      writeBackup(sessionId, content);
+    }, BACKUP_DEBOUNCE_MS);
+    return () => {
+      if (backupTimerRef.current) clearTimeout(backupTimerRef.current);
+    };
+  }, [content, savedContent, sessionId, loading]);
 
   // Auto-save Ctrl+S
   useEffect(() => {
@@ -193,6 +267,30 @@ export default function GuionEditor({ sessionId, mode }: Props) {
           />
         )}
       </div>
+
+      <ConfirmDialog
+        open={recoveredBackup !== null}
+        title="¿Restaurar borrador local?"
+        description={
+          recoveredBackup
+            ? `Encontré cambios sin guardar en este guión (último intento: ${new Date(recoveredBackup.savedAt).toLocaleString("es-AR")}). Esto suele pasar si la app se cerró antes de guardar. ¿Querés recuperar esa versión?`
+            : ""
+        }
+        confirmLabel="Restaurar borrador"
+        cancelLabel="Descartar"
+        onCancel={() => {
+          clearBackup(sessionId);
+          setRecoveredBackup(null);
+          toast.info("Borrador descartado", 1500);
+        }}
+        onConfirm={() => {
+          if (recoveredBackup) {
+            setContent(recoveredBackup.content);
+            toast.info("Borrador restaurado — guardalo con Ctrl+S", 3000);
+          }
+          setRecoveredBackup(null);
+        }}
+      />
     </div>
   );
 }
