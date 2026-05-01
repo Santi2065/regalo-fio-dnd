@@ -20,6 +20,7 @@ const SHORTCUTS: { group: string; items: Shortcut[] }[] = [
       { keys: ["Ctrl", "R"], description: "Tirar dados (1d20+5, 4d6kh3, adv...)" },
       { keys: ["Ctrl", "G"], description: "Generar NPC, taberna, botín o clima" },
       { keys: ["Ctrl", "K"], description: "Buscar en los manuales cargados" },
+      { keys: ["Ctrl", "M"], description: "Mandar handout (requiere companion activo)" },
     ],
   },
   {

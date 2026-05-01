@@ -1,29 +1,38 @@
-//! Player Web Companion — fase B.1 (foundation).
+//! Player Web Companion — fases B.1 + B.2.
 //!
 //! Servidor HTTP embebido que expone una URL accesible desde la red WiFi
-//! local (ej: `http://192.168.1.42:47823`). Los players pueden conectarse
-//! con su celu para ver handouts, su ficha, tirar dados, etc.
+//! local. Los players abren la URL en el celu, eligen su PJ de una lista
+//! configurable por el DM, y entran a una vista de sesión.
 //!
-//! Esta primera fase entrega:
+//! Esta versión entrega:
 //! - Lifecycle del server (start / stop / status)
-//! - 3 endpoints básicos: GET /, GET /api/session, GET /api/ping
-//! - QR code generation para que los players escaneen
-//! - PIN opcional (4 dígitos) para auth ligera
+//! - Lista de characters configurable desde el DM (companion_set_characters)
+//! - Auth ligera con tokens in-memory (POST /api/connect → token; GET /api/me)
+//! - Player view real (HTML+JS standalone, mobile-first) servida desde /
+//! - PIN opcional de sesión + validación
 //!
-//! Lo que NO entra todavía (fases futuras):
-//! - Player view real (servida como static SPA)
-//! - WebSocket para push de eventos
-//! - Connect endpoint con character selection
-//! - Handouts privados, dice broadcast, fog sync, etc.
+//! Falta para B.3:
+//! - WebSocket para push de eventos al celu (handouts, fog, HP, dice)
+//! - Endpoints para tirar dados desde el celu y broadcast al DM
+//! - Tabs reales en la session view (Ficha / Mapa / Tirar / Notas)
 
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
-use tokio::sync::oneshot;
+use std::time::Instant;
+use tauri::AppHandle;
+use tokio::sync::{broadcast, oneshot};
 
 mod server;
 
 const COMPANION_PORT: u16 = 47823;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Character {
+    pub id: String,
+    pub name: String,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CompanionInfo {
@@ -34,27 +43,108 @@ pub struct CompanionInfo {
     pub qr_svg: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConnectedPlayer {
+    pub token: String,
+    pub character: Character,
+    /// Cuándo se conectó, en segundos desde que arrancó el server.
+    pub connected_seconds_ago: u64,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct CompanionStatus {
     pub running: bool,
     pub info: Option<CompanionInfo>,
-    pub connected_players: u32,
+    pub characters: Vec<Character>,
+    pub connected: Vec<ConnectedPlayer>,
 }
 
 /// State global del companion. None = apagado.
 pub struct CompanionState {
     info: Option<CompanionInfo>,
     shutdown_tx: Option<oneshot::Sender<()>>,
-    /// Compartido con el server para que pueda servir info pública vía /api/session.
+    /// Compartido con el server. Lectura/escritura desde dos lados (commands
+    /// Tauri y handlers axum), por eso Mutex.
     pub public_state: Arc<StdMutex<PublicState>>,
 }
 
-/// State que el server consume (read-only desde su perspectiva, escrito desde
-/// los comandos Tauri). Todo lo que un player puede legítimamente ver.
-#[derive(Debug, Default, Clone)]
+/// State leído por el server axum y mutado por los comandos Tauri (excepto
+/// `connections` que el server también muta cuando un player se conecta /
+/// desconecta).
+#[derive(Debug)]
 pub struct PublicState {
     pub campaign_name: String,
     pub pin: Option<String>,
+    pub characters: Vec<Character>,
+    /// token → conexión. Generado por POST /api/connect.
+    pub connections: HashMap<String, ServerConnection>,
+    pub started_at: Option<Instant>,
+    /// Broadcast channel para empujar PlayerEvents a todas las WebSocket
+    /// conexiones activas. Cada handler de /ws subscribe y filtra eventos
+    /// según el player target (broadcast vs privado).
+    pub events: broadcast::Sender<PlayerEvent>,
+}
+
+impl Default for PublicState {
+    fn default() -> Self {
+        let (tx, _rx) = broadcast::channel(64);
+        Self {
+            campaign_name: String::new(),
+            pin: None,
+            characters: Vec::new(),
+            connections: HashMap::new(),
+            started_at: None,
+            events: tx,
+        }
+    }
+}
+
+/// Eventos que el DM puede empujar al celu de los players.
+/// `to_token == None` significa broadcast (todos los conectados); `Some(token)`
+/// es un evento privado para ese player solo.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum PlayerEvent {
+    #[serde(rename = "handout")]
+    Handout {
+        to_token: Option<String>,
+        content: HandoutContent,
+        sent_at: String,
+    },
+    #[serde(rename = "kicked")]
+    Kicked { to_token: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum HandoutContent {
+    #[serde(rename = "text")]
+    Text { title: Option<String>, body: String },
+}
+
+/// Eventos que el server le empuja al DM (a través del frontend Tauri).
+/// El DM frontend escucha estos via `listen("companion-event", ...)`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum DmEvent {
+    #[serde(rename = "dice_roll")]
+    DiceRoll {
+        from_token: String,
+        from_name: String,
+        expression: String,
+        total: i64,
+        breakdown: String,
+    },
+    #[serde(rename = "player_connected")]
+    PlayerConnected { token: String, name: String },
+    #[serde(rename = "player_disconnected")]
+    PlayerDisconnected { token: String, name: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerConnection {
+    pub character: Character,
+    pub connected_at: Instant,
 }
 
 impl CompanionState {
@@ -68,9 +158,6 @@ impl CompanionState {
 }
 
 fn detect_local_ip() -> String {
-    // local-ip-address devuelve la IP del adaptador "main". Si falla
-    // (sin red), caemos a localhost — el companion no será visible en
-    // celus pero la app no rompe.
     local_ip_address::local_ip()
         .map(|ip| ip.to_string())
         .unwrap_or_else(|_| "127.0.0.1".to_string())
@@ -99,6 +186,8 @@ fn generate_pin() -> String {
 pub async fn companion_start(
     pin: Option<String>,
     campaign_name: Option<String>,
+    characters: Option<Vec<Character>>,
+    app: AppHandle,
     state: tauri::State<'_, StdMutex<CompanionState>>,
 ) -> Result<CompanionInfo, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
@@ -109,7 +198,6 @@ pub async fn companion_start(
             .ok_or_else(|| "Already running but info missing".to_string());
     }
 
-    // Validar PIN si fue provisto: solo 4 dígitos.
     let validated_pin = pin
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty())
@@ -126,6 +214,9 @@ pub async fn companion_start(
         let mut public = guard.public_state.lock().map_err(|e| e.to_string())?;
         public.campaign_name = campaign_name.unwrap_or_else(|| "Sesión D&D".to_string());
         public.pin = validated_pin.clone();
+        public.characters = characters.unwrap_or_default();
+        public.connections.clear();
+        public.started_at = Some(Instant::now());
     }
 
     let local_ip = detect_local_ip();
@@ -143,9 +234,10 @@ pub async fn companion_start(
     let (tx, rx) = oneshot::channel::<()>();
     let public_state = guard.public_state.clone();
     let port = COMPANION_PORT;
+    let app_handle = app.clone();
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = server::run(port, public_state, rx).await {
+        if let Err(e) = server::run(port, public_state, app_handle, rx).await {
             eprintln!("[companion] server error: {e}");
         }
     });
@@ -165,6 +257,10 @@ pub fn companion_stop(
         let _ = tx.send(());
     }
     guard.info = None;
+    if let Ok(mut public) = guard.public_state.lock() {
+        public.connections.clear();
+        public.started_at = None;
+    }
     Ok(())
 }
 
@@ -173,11 +269,73 @@ pub fn companion_status(
     state: tauri::State<'_, StdMutex<CompanionState>>,
 ) -> Result<CompanionStatus, String> {
     let guard = state.lock().map_err(|e| e.to_string())?;
+    let public = guard.public_state.lock().map_err(|e| e.to_string())?;
+    let connected: Vec<ConnectedPlayer> = public
+        .connections
+        .iter()
+        .map(|(token, conn)| ConnectedPlayer {
+            token: token.clone(),
+            character: conn.character.clone(),
+            connected_seconds_ago: conn.connected_at.elapsed().as_secs(),
+        })
+        .collect();
     Ok(CompanionStatus {
         running: guard.info.is_some(),
         info: guard.info.clone(),
-        connected_players: 0, // B.2 wires the actual count via WebSocket sessions
+        characters: public.characters.clone(),
+        connected,
     })
+}
+
+#[tauri::command]
+pub fn companion_set_characters(
+    characters: Vec<Character>,
+    state: tauri::State<'_, StdMutex<CompanionState>>,
+) -> Result<(), String> {
+    let guard = state.lock().map_err(|e| e.to_string())?;
+    let mut public = guard.public_state.lock().map_err(|e| e.to_string())?;
+    public.characters = characters;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn companion_kick_player(
+    token: String,
+    state: tauri::State<'_, StdMutex<CompanionState>>,
+) -> Result<(), String> {
+    let guard = state.lock().map_err(|e| e.to_string())?;
+    let mut public = guard.public_state.lock().map_err(|e| e.to_string())?;
+    public.connections.remove(&token);
+    let _ = public.events.send(PlayerEvent::Kicked {
+        to_token: token,
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn companion_send_handout(
+    to_token: Option<String>,
+    title: Option<String>,
+    body: String,
+    state: tauri::State<'_, StdMutex<CompanionState>>,
+) -> Result<(), String> {
+    let guard = state.lock().map_err(|e| e.to_string())?;
+    let public = guard.public_state.lock().map_err(|e| e.to_string())?;
+    if !guard.info.is_some() {
+        return Err("Companion no está activo".to_string());
+    }
+    if let Some(ref t) = to_token {
+        if !public.connections.contains_key(t) {
+            return Err("El player ya no está conectado".to_string());
+        }
+    }
+    let event = PlayerEvent::Handout {
+        to_token,
+        content: HandoutContent::Text { title, body },
+        sent_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let _ = public.events.send(event);
+    Ok(())
 }
 
 #[tauri::command]

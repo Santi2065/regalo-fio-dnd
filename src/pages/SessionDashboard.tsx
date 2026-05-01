@@ -15,6 +15,7 @@ import DiceOverlay from "../components/DiceOverlay";
 import GeneratorOverlay from "../components/GeneratorOverlay";
 import ManualSearch from "../components/ManualSearch";
 import CompanionDialog from "../components/CompanionDialog";
+import SendHandoutDialog from "../components/SendHandoutDialog";
 import type { CompanionStatus } from "../lib/companion";
 import { companionStatus as fetchCompanionStatus } from "../lib/companion";
 import type { Session } from "../lib/types";
@@ -80,6 +81,7 @@ export default function SessionDashboard() {
   const [manualSearchOpen, setManualSearchOpen] = useState(false);
   const [companionOpen, setCompanionOpen] = useState(false);
   const [companion, setCompanion] = useState<CompanionStatus | null>(null);
+  const [handoutOpen, setHandoutOpen] = useState(false);
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -116,6 +118,30 @@ export default function SessionDashboard() {
       .catch((e) => console.error("[Dashboard] companion status failed", e));
   }, []);
 
+  // Escuchar eventos del companion (dice rolls de los players, etc).
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<{
+        type: string;
+        from_name?: string;
+        expression?: string;
+        total?: number;
+        breakdown?: string;
+      }>("companion-event", (event) => {
+        const p = event.payload;
+        if (p.type === "dice_roll" && p.from_name) {
+          toast.info(`🎲 ${p.from_name}: ${p.expression} = ${p.total}`, 5000);
+        }
+      }).then((un) => {
+        unlistenFn = un;
+      });
+    });
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
   useEffect(() => {
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     if (!authenticated) return;
@@ -149,6 +175,11 @@ export default function SessionDashboard() {
         if (key === "k") {
           e.preventDefault();
           setManualSearchOpen((v) => !v);
+          return;
+        }
+        if (key === "m" && companion?.running) {
+          e.preventDefault();
+          setHandoutOpen((v) => !v);
           return;
         }
       }
@@ -189,7 +220,7 @@ export default function SessionDashboard() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [mode, collapsed]);
+  }, [mode, collapsed, companion?.running]);
 
   if (!id) return null;
 
@@ -309,8 +340,8 @@ export default function SessionDashboard() {
           <Tooltip
             content={
               companion?.running
-                ? `Companion activo · ${companion.connected_players} conectado${
-                    companion.connected_players === 1 ? "" : "s"
+                ? `Companion activo · ${companion.connected.length} conectado${
+                    companion.connected.length === 1 ? "" : "s"
                   }`
                 : "Compartir con jugadores via celu"
             }
@@ -328,7 +359,7 @@ export default function SessionDashboard() {
               <span aria-hidden>📡</span>
               {companion?.running ? (
                 <span className="font-medium tabular-nums">
-                  {companion.connected_players}
+                  {companion.connected.length}
                 </span>
               ) : (
                 <span>Compartir</span>
@@ -509,6 +540,7 @@ export default function SessionDashboard() {
         onClose={() => setCompanionOpen(false)}
         onStatusChange={setCompanion}
       />
+      <SendHandoutDialog open={handoutOpen} onClose={() => setHandoutOpen(false)} />
     </div>
   );
 }
