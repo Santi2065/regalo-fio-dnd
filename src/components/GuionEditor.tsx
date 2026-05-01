@@ -146,7 +146,7 @@ export default function GuionEditor({ sessionId, mode }: Props) {
                 <span className="text-xs text-amber-500">Sin guardar</span>
               )}
               <button
-                onClick={handleSave}
+                onClick={() => handleSave()}
                 disabled={saving || !isDirty}
                 className="bg-amber-700 hover:bg-amber-600 disabled:opacity-40 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
               >

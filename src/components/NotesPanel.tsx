@@ -170,7 +170,7 @@ export default function NotesPanel({ sessionId, compact = false }: Props) {
                   {preview ? "✎" : "👁"}
                 </button>
                 {isDirty && (
-                  <button onClick={handleSave} disabled={saving} className="bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white px-2 py-0.5 rounded text-xs font-medium transition-colors">
+                  <button onClick={() => handleSave()} disabled={saving} className="bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white px-2 py-0.5 rounded text-xs font-medium transition-colors">
                     {saving ? "..." : "Guardar"}
                   </button>
                 )}
@@ -308,7 +308,7 @@ export default function NotesPanel({ sessionId, compact = false }: Props) {
                 </button>
                 {isDirty && (
                   <button
-                    onClick={handleSave}
+                    onClick={() => handleSave()}
                     disabled={saving}
                     className="bg-amber-700 hover:bg-amber-600 disabled:opacity-50 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
                   >
