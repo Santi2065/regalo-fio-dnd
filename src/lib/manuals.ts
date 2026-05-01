@@ -14,6 +14,7 @@ export interface Manual {
 export interface SearchHit {
   manual_id: string;
   manual_name: string;
+  manual_file_path: string;
   page_number: number;
   section_path: string | null;
   text: string;

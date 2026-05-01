@@ -38,7 +38,10 @@ base64 = "0.22"
 rand = "0.8"
 url = "2"
 urlencoding = "2"
-# Knowledge Base (v1.2): PDF extraction + unicode normalization
+# Knowledge Base (v1.2): PDF extraction + unicode normalization + embeddings
 pdf-extract = "0.7"
 unicode-normalization = "0.1"
+# fastembed bundles ONNX runtime + tokenizers and downloads the actual model
+# the first time TextEmbedding::try_new is called (cached on disk after).
+fastembed = "5"
 
