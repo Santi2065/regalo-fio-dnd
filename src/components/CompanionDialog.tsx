@@ -4,10 +4,14 @@ import {
   companionStop,
   companionStatus,
   companionGeneratePin,
+  companionSetCharacters,
+  companionKickPlayer,
   type CompanionStatus,
+  type Character,
 } from "../lib/companion";
 import { toast } from "../lib/toast";
-import { Button, KeyboardKey, Modal } from "./ui";
+import { Button, IconButton, KeyboardKey, Modal } from "./ui";
+import { readJSON, writeJSON } from "../lib/persistence";
 
 interface Props {
   open: boolean;
@@ -17,6 +21,10 @@ interface Props {
 }
 
 const POLL_INTERVAL_MS = 4000;
+const CHARS_KEY = "companion-characters-v1";
+
+const newCharId = () =>
+  `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
 export default function CompanionDialog({
   open,
@@ -29,6 +37,13 @@ export default function CompanionDialog({
   const [pinDraft, setPinDraft] = useState("");
   const [pinEnabled, setPinEnabled] = useState(false);
 
+  // Characters: persistidos en localStorage para que sobrevivan reloads del
+  // dialog. El backend se hidrata desde acá al activar.
+  const [characters, setCharacters] = useState<Character[]>(() =>
+    readJSON<Character[]>(CHARS_KEY, [])
+  );
+  const [newCharName, setNewCharName] = useState("");
+
   // Initial fetch + poll while dialog open.
   useEffect(() => {
     if (!open) return;
@@ -39,6 +54,11 @@ export default function CompanionDialog({
         if (!cancelled) {
           setStatus(s);
           onStatusChange?.(s);
+          // Si el server tiene characters (companion ya activo), sincronizamos
+          // localStorage con el server para no perder datos cross-session.
+          if (s.running && s.characters.length > 0) {
+            setCharacters(s.characters);
+          }
         }
       } catch (e) {
         console.error("[Companion] status failed", e);
@@ -52,13 +72,52 @@ export default function CompanionDialog({
     };
   }, [open, onStatusChange]);
 
+  // Persist characters al cambiar.
+  useEffect(() => {
+    writeJSON(CHARS_KEY, characters);
+  }, [characters]);
+
+  // Si el server está activo, mantener su lista de characters sincronizada.
+  useEffect(() => {
+    if (status?.running) {
+      companionSetCharacters(characters).catch((e) =>
+        console.error("[Companion] sync chars failed", e)
+      );
+    }
+  }, [characters, status?.running]);
+
+  const addCharacter = () => {
+    const name = newCharName.trim();
+    if (!name) return;
+    if (characters.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+      toast.error("Ya hay un personaje con ese nombre");
+      return;
+    }
+    setCharacters((prev) => [...prev, { id: newCharId(), name }]);
+    setNewCharName("");
+  };
+
+  const removeCharacter = (id: string) => {
+    setCharacters((prev) => prev.filter((c) => c.id !== id));
+  };
+
   const handleStart = async () => {
+    if (characters.length === 0) {
+      toast.error("Agregá al menos un personaje antes de activar");
+      return;
+    }
     setBusy(true);
     try {
       const pin = pinEnabled ? pinDraft : null;
-      const info = await companionStart(pin, campaignName);
-      setStatus({ running: true, info, connected_players: 0 });
-      onStatusChange?.({ running: true, info, connected_players: 0 });
+      const info = await companionStart(pin, campaignName, characters);
+      const next: CompanionStatus = {
+        running: true,
+        info,
+        characters,
+        connected: [],
+      };
+      setStatus(next);
+      onStatusChange?.(next);
       toast.success("Companion activo · compartí el QR");
     } catch (e) {
       console.error("[Companion] start failed", e);
@@ -73,14 +132,30 @@ export default function CompanionDialog({
     setBusy(true);
     try {
       await companionStop();
-      setStatus({ running: false, info: null, connected_players: 0 });
-      onStatusChange?.({ running: false, info: null, connected_players: 0 });
+      const next: CompanionStatus = {
+        running: false,
+        info: null,
+        characters,
+        connected: [],
+      };
+      setStatus(next);
+      onStatusChange?.(next);
       toast.info("Companion detenido");
     } catch (e) {
       console.error("[Companion] stop failed", e);
       toast.error("No se pudo detener el companion");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleKick = async (token: string, name: string) => {
+    try {
+      await companionKickPlayer(token);
+      toast.info(`${name} desconectado`);
+    } catch (e) {
+      console.error("[Companion] kick failed", e);
+      toast.error("No se pudo desconectar");
     }
   };
 
@@ -100,7 +175,7 @@ export default function CompanionDialog({
       await navigator.clipboard.writeText(status.info.url);
       toast.success("URL copiada");
     } catch {
-      /* clipboard puede estar bloqueado en algunos contextos */
+      /* ignore */
     }
   };
 
@@ -114,18 +189,90 @@ export default function CompanionDialog({
       title="📡 Compartir con jugadores"
       description={
         running
-          ? "Tus jugadores escanean el QR desde el celu y se conectan."
-          : "Activá el server local para que los jugadores se conecten desde su celu por WiFi."
+          ? "Tus jugadores escanean el QR y eligen su personaje."
+          : "Cargá los personajes y activá el server local."
       }
     >
+      {/* Characters section — visible siempre */}
+      <div className="mb-5">
+        <label className="block text-[10px] uppercase tracking-wider text-vellum-400 mb-2">
+          Personajes ({characters.length})
+        </label>
+        <div className="space-y-1.5">
+          {characters.length === 0 && (
+            <p className="text-xs text-vellum-400">
+              Agregá los nombres de los PJs para que aparezcan en el celu de los jugadores.
+            </p>
+          )}
+          {characters.map((c) => {
+            const isConnected = status?.connected.some(
+              (p) => p.character.id === c.id
+            );
+            const conn = status?.connected.find(
+              (p) => p.character.id === c.id
+            );
+            return (
+              <div
+                key={c.id}
+                className="flex items-center gap-2 bg-parchment-800/50 border border-parchment-700 rounded-md px-2 py-1.5"
+              >
+                <span className="flex-1 text-sm text-vellum-100 truncate">
+                  {c.name}
+                </span>
+                {isConnected && conn ? (
+                  <>
+                    <span className="text-[10px] text-success-300 flex items-center gap-1 flex-shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-success-500 animate-pulse" />
+                      conectado
+                    </span>
+                    <IconButton
+                      label={`Desconectar ${c.name}`}
+                      variant="danger"
+                      size="sm"
+                      onClick={() => handleKick(conn.token, c.name)}
+                    >
+                      ⏏
+                    </IconButton>
+                  </>
+                ) : (
+                  <IconButton
+                    label="Quitar personaje"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeCharacter(c.id)}
+                  >
+                    ×
+                  </IconButton>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex gap-2 mt-2">
+          <input
+            value={newCharName}
+            onChange={(e) => setNewCharName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addCharacter()}
+            placeholder="Nombre del PJ"
+            className="flex-1 bg-parchment-800 border border-parchment-700 rounded-md px-3 py-1.5 text-vellum-50 text-sm focus:outline-none focus:border-gold-500"
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={addCharacter}
+            disabled={!newCharName.trim()}
+          >
+            + Agregar
+          </Button>
+        </div>
+      </div>
+
+      {/* Activation / running state */}
       {running ? (
-        <div className="space-y-4">
+        <div className="space-y-4 pt-4 border-t border-parchment-800">
           <div className="flex justify-center bg-vellum-50 rounded-lg p-3">
             <div
               className="w-56 h-56"
-              // El SVG viene del backend (qrcode crate). Es markup estático,
-              // sin scripts ni interpolación de datos del usuario, así que
-              // dangerouslySetInnerHTML es seguro acá.
               // eslint-disable-next-line react/no-danger
               dangerouslySetInnerHTML={{ __html: status!.info!.qr_svg }}
             />
@@ -163,14 +310,14 @@ export default function CompanionDialog({
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-3 pt-2 border-t border-parchment-800">
+          <div className="flex items-center justify-between gap-3 pt-2">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-success-500 animate-pulse" />
               <span className="text-xs text-success-300">
-                {status!.connected_players === 0
+                {status!.connected.length === 0
                   ? "Sin jugadores conectados"
-                  : `${status!.connected_players} conectado${
-                      status!.connected_players === 1 ? "" : "s"
+                  : `${status!.connected.length} conectado${
+                      status!.connected.length === 1 ? "" : "s"
                     }`}
               </span>
             </div>
@@ -178,14 +325,9 @@ export default function CompanionDialog({
               Detener
             </Button>
           </div>
-
-          <p className="text-[11px] text-vellum-400 leading-relaxed">
-            Los jugadores y vos tienen que estar en la misma red WiFi. Si el QR
-            no funciona, pueden tipear la URL directo en el navegador del celu.
-          </p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3 pt-4 border-t border-parchment-800">
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -196,8 +338,8 @@ export default function CompanionDialog({
             <div className="flex-1">
               <div className="text-sm text-vellum-100">Pedir PIN al conectar</div>
               <div className="text-xs text-vellum-400 mt-0.5">
-                Opcional. Útil si compartís WiFi con vecinos / co-workers que no
-                tienen que entrar a tu mesa.
+                Útil si compartís WiFi con vecinos / co-workers que no tienen
+                que entrar a tu mesa.
               </div>
             </div>
           </label>
@@ -226,7 +368,9 @@ export default function CompanionDialog({
             size="lg"
             onClick={handleStart}
             loading={busy}
-            disabled={pinEnabled && pinDraft.length !== 4}
+            disabled={
+              characters.length === 0 || (pinEnabled && pinDraft.length !== 4)
+            }
             iconBefore="📡"
           >
             Activar companion
@@ -234,9 +378,9 @@ export default function CompanionDialog({
 
           <p className="text-[11px] text-vellum-400 leading-relaxed">
             Va a iniciar un server local en{" "}
-            <code className="font-mono text-vellum-300">puerto 47823</code> de tu
-            máquina. <KeyboardKey size="sm">Esc</KeyboardKey> cierra este diálogo
-            sin activar nada.
+            <code className="font-mono text-vellum-300">puerto 47823</code>.
+            Tus jugadores y vos tienen que estar en la misma red WiFi.{" "}
+            <KeyboardKey size="sm">Esc</KeyboardKey> cierra sin activar.
           </p>
         </div>
       )}

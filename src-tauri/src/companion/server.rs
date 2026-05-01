@@ -2,18 +2,26 @@
 //! desde la red local (celu de los players).
 
 use axum::{
-    extract::State as AxumState,
-    http::{header, StatusCode},
-    response::{Html, IntoResponse, Json},
-    routing::get,
+    extract::{Json as AxumJson, State as AxumState},
+    http::{header, HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Json, Response},
+    routing::{get, post},
     Router,
 };
-use serde::Serialize;
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tokio::sync::oneshot;
 use tower_http::cors::{Any, CorsLayer};
 
-use super::PublicState;
+use super::{Character, PublicState, ServerConnection};
+
+// Embedded mobile-first player view. Servida en GET /. Para B.2 es un
+// HTML+JS standalone; en B.3+ podríamos migrar a un build separado de
+// Vite/React si crece el scope.
+const PLAYER_VIEW_HTML: &str = include_str!("player_view.html");
 
 #[derive(Serialize)]
 struct SessionInfo {
@@ -23,99 +31,173 @@ struct SessionInfo {
 }
 
 #[derive(Serialize)]
+struct CharactersResponse {
+    characters: Vec<Character>,
+}
+
+#[derive(Deserialize)]
+struct ConnectRequest {
+    character_id: String,
+    pin: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ConnectResponse {
+    token: String,
+    character: Character,
+}
+
+#[derive(Serialize)]
+struct MeResponse {
+    character: Character,
+}
+
+#[derive(Serialize)]
 struct PingResponse {
     ok: bool,
     server: &'static str,
     timestamp: String,
 }
 
-const PLACEHOLDER_HTML: &str = r#"<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>DnD Orchestrator · Companion</title>
-<style>
-  *,*::before,*::after { box-sizing: border-box }
-  body {
-    margin: 0;
-    min-height: 100vh;
-    background: linear-gradient(180deg, #18130c 0%, #0e0a06 100%);
-    color: #f8f1de;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-  }
-  .card {
-    max-width: 420px;
-    width: 100%;
-    text-align: center;
-    background: #1a130b;
-    border: 1px solid #322818;
-    border-radius: 14px;
-    padding: 32px 28px;
-    box-shadow: 0 10px 40px -10px rgba(212, 167, 84, 0.18);
-  }
-  .icon { font-size: 48px; margin-bottom: 12px; }
-  h1 {
-    font-family: "Cinzel", Georgia, serif;
-    color: #ecbb47;
-    margin: 0 0 8px;
-    font-size: 22px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-  }
-  p {
-    color: #b8a274;
-    line-height: 1.55;
-    margin: 8px 0;
-    font-size: 14px;
-  }
-  .badge {
-    display: inline-block;
-    margin-top: 16px;
-    padding: 4px 10px;
-    background: rgba(201, 142, 37, 0.12);
-    border: 1px solid rgba(201, 142, 37, 0.4);
-    border-radius: 999px;
-    color: #ecbb47;
-    font-size: 11px;
-    font-family: ui-monospace, "JetBrains Mono", monospace;
-  }
-</style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">⚔</div>
-    <h1>DnD Orchestrator</h1>
-    <p>Estás conectado al companion server de la sesión.</p>
-    <p>La interfaz para jugadores está en construcción —
-       en una próxima versión vas a poder elegir tu PJ, recibir
-       handouts privados, ver el mapa proyectado y tirar dados.</p>
-    <span class="badge">Server activo · v1.3 B.1</span>
-  </div>
-</body>
-</html>"#;
+fn json_error(status: StatusCode, code: &'static str) -> Response {
+    (status, Json(json!({ "error": code }))).into_response()
+}
+
+fn extract_token(headers: &HeaderMap) -> Option<String> {
+    let h = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    h.strip_prefix("Bearer ").map(|s| s.to_string())
+}
+
+fn generate_token() -> String {
+    let mut rng = rand::thread_rng();
+    (0..32)
+        .map(|_| {
+            let n = rng.gen_range(0..62);
+            let c = match n {
+                0..=9 => (b'0' + n as u8) as char,
+                10..=35 => (b'a' + (n - 10) as u8) as char,
+                _ => (b'A' + (n - 36) as u8) as char,
+            };
+            c
+        })
+        .collect()
+}
 
 async fn root_handler() -> impl IntoResponse {
-    Html(PLACEHOLDER_HTML)
+    Html(PLAYER_VIEW_HTML)
 }
 
 async fn session_handler(
     AxumState(state): AxumState<Arc<Mutex<PublicState>>>,
 ) -> impl IntoResponse {
-    let public = state.lock().ok();
-    let (campaign_name, has_pin) = match public {
-        Some(p) => (p.campaign_name.clone(), p.pin.is_some()),
-        None => ("Sesión D&D".to_string(), false),
+    let public = match state.lock() {
+        Ok(p) => p,
+        Err(_) => return Json(json!({ "error": "lock" })).into_response(),
     };
     Json(SessionInfo {
-        campaign_name,
-        has_pin,
+        campaign_name: public.campaign_name.clone(),
+        has_pin: public.pin.is_some(),
         server_version: env!("CARGO_PKG_VERSION"),
     })
+    .into_response()
+}
+
+async fn characters_handler(
+    AxumState(state): AxumState<Arc<Mutex<PublicState>>>,
+) -> impl IntoResponse {
+    let public = match state.lock() {
+        Ok(p) => p,
+        Err(_) => return Json(json!({ "error": "lock" })).into_response(),
+    };
+    Json(CharactersResponse {
+        characters: public.characters.clone(),
+    })
+    .into_response()
+}
+
+async fn connect_handler(
+    AxumState(state): AxumState<Arc<Mutex<PublicState>>>,
+    AxumJson(req): AxumJson<ConnectRequest>,
+) -> Response {
+    let mut public = match state.lock() {
+        Ok(p) => p,
+        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "lock"),
+    };
+
+    // Verificar PIN si la sesión tiene uno.
+    if let Some(expected_pin) = &public.pin {
+        match req.pin.as_deref() {
+            Some(p) if p == expected_pin => {}
+            _ => return json_error(StatusCode::UNAUTHORIZED, "pin_invalid"),
+        }
+    }
+
+    // Verificar que el character existe y no está ya tomado.
+    let character = match public
+        .characters
+        .iter()
+        .find(|c| c.id == req.character_id)
+        .cloned()
+    {
+        Some(c) => c,
+        None => return json_error(StatusCode::NOT_FOUND, "character_not_found"),
+    };
+
+    let already_taken = public
+        .connections
+        .values()
+        .any(|conn| conn.character.id == character.id);
+    if already_taken {
+        return json_error(StatusCode::CONFLICT, "character_taken");
+    }
+
+    let token = generate_token();
+    public.connections.insert(
+        token.clone(),
+        ServerConnection {
+            character: character.clone(),
+            connected_at: Instant::now(),
+        },
+    );
+
+    Json(ConnectResponse { token, character }).into_response()
+}
+
+async fn me_handler(
+    AxumState(state): AxumState<Arc<Mutex<PublicState>>>,
+    headers: HeaderMap,
+) -> Response {
+    let token = match extract_token(&headers) {
+        Some(t) => t,
+        None => return json_error(StatusCode::UNAUTHORIZED, "missing_token"),
+    };
+    let public = match state.lock() {
+        Ok(p) => p,
+        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "lock"),
+    };
+    match public.connections.get(&token) {
+        Some(conn) => Json(MeResponse {
+            character: conn.character.clone(),
+        })
+        .into_response(),
+        None => json_error(StatusCode::UNAUTHORIZED, "invalid_token"),
+    }
+}
+
+async fn disconnect_handler(
+    AxumState(state): AxumState<Arc<Mutex<PublicState>>>,
+    headers: HeaderMap,
+) -> Response {
+    let token = match extract_token(&headers) {
+        Some(t) => t,
+        None => return json_error(StatusCode::UNAUTHORIZED, "missing_token"),
+    };
+    let mut public = match state.lock() {
+        Ok(p) => p,
+        Err(_) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "lock"),
+    };
+    public.connections.remove(&token);
+    Json(json!({ "ok": true })).into_response()
 }
 
 async fn ping_handler() -> impl IntoResponse {
@@ -127,11 +209,7 @@ async fn ping_handler() -> impl IntoResponse {
 }
 
 async fn not_found() -> impl IntoResponse {
-    (
-        StatusCode::NOT_FOUND,
-        [(header::CONTENT_TYPE, "application/json")],
-        r#"{"error":"not_found"}"#,
-    )
+    json_error(StatusCode::NOT_FOUND, "not_found")
 }
 
 pub async fn run(
@@ -139,9 +217,6 @@ pub async fn run(
     public_state: Arc<Mutex<PublicState>>,
     shutdown_rx: oneshot::Receiver<()>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // CORS abierto: el companion solo se accede desde LAN, los players
-    // pueden tener distintas IPs de origen y el endpoint es read-only por
-    // ahora.
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -150,6 +225,10 @@ pub async fn run(
     let app = Router::new()
         .route("/", get(root_handler))
         .route("/api/session", get(session_handler))
+        .route("/api/characters", get(characters_handler))
+        .route("/api/connect", post(connect_handler))
+        .route("/api/me", get(me_handler))
+        .route("/api/disconnect", post(disconnect_handler))
         .route("/api/ping", get(ping_handler))
         .fallback(not_found)
         .with_state(public_state)

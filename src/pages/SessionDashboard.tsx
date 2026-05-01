@@ -309,8 +309,8 @@ export default function SessionDashboard() {
           <Tooltip
             content={
               companion?.running
-                ? `Companion activo · ${companion.connected_players} conectado${
-                    companion.connected_players === 1 ? "" : "s"
+                ? `Companion activo · ${companion.connected.length} conectado${
+                    companion.connected.length === 1 ? "" : "s"
                   }`
                 : "Compartir con jugadores via celu"
             }
@@ -328,7 +328,7 @@ export default function SessionDashboard() {
               <span aria-hidden>📡</span>
               {companion?.running ? (
                 <span className="font-medium tabular-nums">
-                  {companion.connected_players}
+                  {companion.connected.length}
                 </span>
               ) : (
                 <span>Compartir</span>

@@ -99,6 +99,8 @@ pub fn run() {
             companion::companion_stop,
             companion::companion_status,
             companion::companion_generate_pin,
+            companion::companion_set_characters,
+            companion::companion_kick_player,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
