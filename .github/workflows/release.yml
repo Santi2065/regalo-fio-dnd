@@ -63,6 +63,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Auto-updater (v1.5): la action firma los bundles + genera
+          # latest.json con la firma. Si los secrets no están definidos,
+          # los releases salen igual pero sin firma → la app se rehúsa a
+          # auto-actualizar (lo cual es correcto, no querés instalar
+          # bundles no firmados).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "DnD Orchestrator ${{ github.ref_name }}"
@@ -71,6 +78,10 @@ jobs:
 
             **Windows:** descargá `DnD Orchestrator_*_x64-setup.exe` y ejecutalo.
             **Linux (Debian/Ubuntu):** `sudo dpkg -i "DnD Orchestrator_*_amd64.deb"`
+
+            ### Auto-update
+            Una vez instalada cualquier versión ≥ v1.5, la app chequea actualizaciones
+            sola al arrancar y te ofrece reiniciar para aplicarlas.
 
             ### Requisitos
             - **Windows:** Windows 10 o superior (WebView2 se instala automáticamente si no está)

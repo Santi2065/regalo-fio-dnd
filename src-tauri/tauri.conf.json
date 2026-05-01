@@ -44,6 +44,18 @@
       "nsis": {
         "installMode": "currentUser"
       }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Santi2065/regalo-fio-dnd/releases/latest/download/latest.json"
+      ],
+      "pubkey": "REPLACE_WITH_PUBKEY_FROM_TAURI_SIGNER_GENERATE",
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }
