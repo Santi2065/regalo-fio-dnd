@@ -15,6 +15,12 @@ interface Shortcut {
 
 const SHORTCUTS: { group: string; items: Shortcut[] }[] = [
   {
+    group: "Búsqueda en manuales",
+    items: [
+      { keys: ["Ctrl", "K"], description: "Buscar en los manuales cargados" },
+    ],
+  },
+  {
     group: "Navegación principal",
     items: [
       { keys: ["Ctrl", "1"], description: "Ir a Guión" },
@@ -29,7 +35,6 @@ const SHORTCUTS: { group: string; items: Shortcut[] }[] = [
       { keys: ["Ctrl", "5"], description: "Proyección" },
       { keys: ["Ctrl", "6"], description: "Iniciativa" },
       { keys: ["Ctrl", "7"], description: "Notas" },
-      { keys: ["Ctrl", "8"], description: "Spotify" },
       { keys: ["Ctrl", "\\"], description: "Colapsar / expandir panel" },
     ],
   },
