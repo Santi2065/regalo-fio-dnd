@@ -23,6 +23,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../lib/toast";
 import { readJSON, writeJSON } from "../lib/persistence";
 import { IconButton, Tooltip } from "../components/ui";
+import { useSoundTriggerEngine } from "../lib/useSoundTriggerEngine";
+import { useLiveStateStore } from "../store/liveStateStore";
 
 type MainSection = "guion" | "assets" | "personajes";
 type ToolTab = "soundboard" | "display" | "initiative" | "notes";
@@ -141,6 +143,16 @@ export default function SessionDashboard() {
       if (unlistenFn) unlistenFn();
     };
   }, []);
+
+  // Reset live state al cambiar de sesión para que el sound-trigger engine
+  // no dispare reglas con datos de la sesión anterior.
+  useEffect(() => {
+    useLiveStateStore.getState().resetForSession();
+  }, [id]);
+
+  // Engine de sound triggers — siempre montado mientras hay sesión activa.
+  // El hook subscribe al live store y dispara acciones según transiciones.
+  useSoundTriggerEngine(id ?? null, Boolean(id));
 
   useEffect(() => {
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);

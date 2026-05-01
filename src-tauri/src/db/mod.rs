@@ -134,6 +134,22 @@ pub fn init(conn: &Connection) -> Result<()> {
         );
 
         CREATE INDEX IF NOT EXISTS idx_stat_blocks_name ON stat_blocks(name_normalized);
+
+        -- Live mechanics (v1.4): reglas if-then de audio automático.
+        -- `config` es un JSON con la forma { when, action, label, enabled }.
+        -- Lo guardo como blob por si más adelante el shape evoluciona, así no
+        -- migramos schema cada vez. La cascada por session_id es la garantía
+        -- importante.
+        CREATE TABLE IF NOT EXISTS sound_triggers (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            config TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sound_triggers_session
+            ON sound_triggers(session_id, sort_order);
         ",
     )?;
 

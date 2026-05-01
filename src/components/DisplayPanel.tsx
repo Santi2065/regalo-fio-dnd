@@ -4,6 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Asset } from "../lib/types";
 import { toast } from "../lib/toast";
 import FogPainter from "./FogPainter";
+import { useLiveStateStore } from "../store/liveStateStore";
 
 interface MonitorInfo {
   name: string;
@@ -88,6 +89,7 @@ export default function DisplayPanel({ sessionId }: Props) {
         },
       });
       setCurrentScene(asset);
+      useLiveStateStore.getState().setActiveSceneAssetId(asset.id);
     } catch (e) {
       console.error("[DisplayPanel] project failed", e);
       toast.error("No se pudo proyectar la escena");
@@ -98,6 +100,7 @@ export default function DisplayPanel({ sessionId }: Props) {
     try {
       await invoke("clear_player_display");
       setCurrentScene(null);
+      useLiveStateStore.getState().setActiveSceneAssetId(null);
     } catch (e) {
       console.error("[DisplayPanel] clear failed", e);
     }

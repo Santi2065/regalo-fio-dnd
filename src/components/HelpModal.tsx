@@ -108,6 +108,11 @@ const TIPS: { title: string; body: string }[] = [
     body:
       "Una vez que asignás una tecla a una celda, esa tecla dispara el sonido sin importar en qué tab estés (excepto si estás escribiendo en un input).",
   },
+  {
+    title: "Reglas automáticas de audio",
+    body:
+      "Abajo del soundboard hay una sección colapsable 'Reglas automáticas'. Podés configurar disparadores tipo if-then: cuando el HP de un PJ baja del 25% → loop de combate, cuando empieza la ronda 3 → SFX de tensión, cuando se proyecta una imagen → ambient de taberna. Las reglas se guardan por sesión.",
+  },
 ];
 
 export default function HelpModal({ open, onClose }: Props) {
