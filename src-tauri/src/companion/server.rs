@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -756,10 +756,10 @@ async fn chat_handler(
 
     // Persist a DB. Accedemos al AppState via el AppHandle (cleaner que
     // pasarlo en AppCtx — el server no necesita el AppState para nada más).
-    let app_state = match ctx.app.try_state::<crate::AppState>() {
-        Some(s) => s,
-        None => return json_error(StatusCode::INTERNAL_SERVER_ERROR, "no_app_state"),
-    };
+    // El método `state` viene del trait `Manager` y devuelve State<T>
+    // directamente (panic si no está registrado, lo cual no debería pasar
+    // porque AppState se registra al boot de la app).
+    let app_state = ctx.app.state::<crate::AppState>();
     if let Err(e) = super::persist_chat(&app_state, &msg) {
         eprintln!("[companion] persist chat failed: {e}");
     }
