@@ -44,4 +44,10 @@ unicode-normalization = "0.1"
 # fastembed bundles ONNX runtime + tokenizers and downloads the actual model
 # the first time TextEmbedding::try_new is called (cached on disk after).
 fastembed = "5"
+# Player Web Companion (v1.3 B.1): HTTP server embebido + CORS + QR
+axum = { version = "0.7", features = ["macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net"] }
+tower-http = { version = "0.6", features = ["cors"] }
+qrcode = "0.14"
+local-ip-address = "0.6"
 
