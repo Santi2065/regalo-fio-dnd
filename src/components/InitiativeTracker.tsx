@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useDebouncedEffect } from "../lib/useDebouncedEffect";
+import { useStatBlock } from "../lib/statBlockCache";
+import StatBlockPanel from "./initiative/StatBlockPanel";
 
 interface Combatant {
   id: string;
@@ -405,6 +407,7 @@ export default function InitiativeTracker({ sessionId }: Props) {
                         <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ${TYPE_BADGE[c.type]}`}>
                           {c.type === "player" ? "PJ" : c.type === "enemy" ? "Enemigo" : "NPC"}
                         </span>
+                        <StatBlockIndicator name={c.name} />
                       </div>
                       {c.conditions.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-0.5">
@@ -544,6 +547,7 @@ export default function InitiativeTracker({ sessionId }: Props) {
                         placeholder="Notas..."
                         className="w-full bg-stone-800/50 border border-stone-700 rounded px-2.5 py-1 text-xs text-stone-300 focus:outline-none focus:border-stone-500"
                       />
+                      <StatBlockExpansion name={c.name} />
                     </div>
                   )}
                 </div>
@@ -554,4 +558,31 @@ export default function InitiativeTracker({ sessionId }: Props) {
       </div>
     </div>
   );
+}
+
+// ── Stat block integration ────────────────────────────────────────────────
+//
+// Extracted as sub-components so we can call useStatBlock per combatant
+// without violating rules-of-hooks. Both fail silently when there's no
+// matching stat block, so they're invisible until the user imports a
+// manual that contains the relevant monster.
+
+function StatBlockIndicator({ name }: { name: string }) {
+  const { statBlock } = useStatBlock(name);
+  if (!statBlock) return null;
+  return (
+    <span
+      className="text-gold-400 text-xs flex-shrink-0"
+      title={`Stat block disponible: ${statBlock.manual_name} pág. ${statBlock.page_number}`}
+      aria-label="Stat block disponible"
+    >
+      📖
+    </span>
+  );
+}
+
+function StatBlockExpansion({ name }: { name: string }) {
+  const { statBlock } = useStatBlock(name);
+  if (!statBlock) return null;
+  return <StatBlockPanel statBlock={statBlock} />;
 }

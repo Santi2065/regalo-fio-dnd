@@ -10,6 +10,7 @@ import {
 } from "../../lib/manuals";
 import { toast } from "../../lib/toast";
 import { formatDateShort } from "../../lib/formatDate";
+import { clearStatBlockCache } from "../../lib/statBlockCache";
 import { Button, Card, ConfirmDialog, EmptyState, IconButton, KeyboardKey } from "../ui";
 
 interface JobState {
@@ -106,6 +107,9 @@ export default function ManualsList() {
     try {
       await deleteManual(manual.id);
       setDeleteConfirm(null);
+      // Stat blocks de este manual ya no existen — limpiar cache para que
+      // la fila de Iniciativa correspondiente pierda el indicador 📖.
+      clearStatBlockCache();
       toast.success("Manual eliminado");
       refresh();
     } catch (e) {
