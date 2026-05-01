@@ -98,6 +98,42 @@ pub fn init(conn: &Connection) -> Result<()> {
             custom_conditions TEXT DEFAULT '[]',
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
+
+        -- Knowledge Base (v1.2): manuales con búsqueda semántica
+        CREATE TABLE IF NOT EXISTS manuals (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            page_count INTEGER,
+            language TEXT,
+            indexed_at TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS manual_chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            manual_id TEXT NOT NULL,
+            page_number INTEGER NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            section_path TEXT,
+            embedding BLOB,
+            FOREIGN KEY (manual_id) REFERENCES manuals(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_chunks_manual ON manual_chunks(manual_id);
+
+        CREATE TABLE IF NOT EXISTS stat_blocks (
+            id TEXT PRIMARY KEY,
+            manual_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            name_normalized TEXT NOT NULL,
+            page_number INTEGER NOT NULL,
+            data TEXT NOT NULL,
+            FOREIGN KEY (manual_id) REFERENCES manuals(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_stat_blocks_name ON stat_blocks(name_normalized);
         ",
     )?;
 

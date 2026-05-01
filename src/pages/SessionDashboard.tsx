@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSessionStore } from "../store/sessionStore";
 import { useSpotifyStore } from "../store/spotifyStore";
-import AssetBrowser from "../components/AssetBrowser";
+import LibraryBrowser from "../components/LibraryBrowser";
 import NotesPanel from "../components/NotesPanel";
 import SoundboardPanel from "../components/SoundboardPanel";
 import DisplayPanel from "../components/DisplayPanel";
@@ -11,6 +11,7 @@ import InitiativeTracker from "../components/InitiativeTracker";
 import MiniSpotifyPlayer from "../components/MiniSpotifyPlayer";
 import CharacterSheets from "../components/CharacterSheets";
 import HelpModal from "../components/HelpModal";
+import ManualSearch from "../components/ManualSearch";
 import type { Session } from "../lib/types";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "../lib/toast";
@@ -69,6 +70,7 @@ export default function SessionDashboard() {
   );
   const [mode, setMode] = useState<Mode>("prep");
   const [helpOpen, setHelpOpen] = useState(false);
+  const [manualSearchOpen, setManualSearchOpen] = useState(false);
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -113,6 +115,14 @@ export default function SessionDashboard() {
   // ── Keyboard shortcuts ─────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Ctrl+K is the global search — debe funcionar incluso dentro del editor
+      // del guion o cualquier input. Lo chequeamos antes del guard de targets.
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setManualSearchOpen((v) => !v);
+        return;
+      }
+
       if (
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement ||
@@ -319,7 +329,7 @@ export default function SessionDashboard() {
             <GuionEditor sessionId={id} mode={mode} />
           </div>
           <div className={mainSection === "assets" ? "h-full" : "hidden"}>
-            <AssetBrowser sessionId={id} />
+            <LibraryBrowser sessionId={id} />
           </div>
           <div className={mainSection === "personajes" ? "h-full" : "hidden"}>
             <CharacterSheets sessionId={id} />
@@ -424,6 +434,7 @@ export default function SessionDashboard() {
 
       {/* Help modal */}
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <ManualSearch open={manualSearchOpen} onClose={() => setManualSearchOpen(false)} />
     </div>
   );
 }
