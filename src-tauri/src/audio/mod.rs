@@ -52,6 +52,7 @@ where
 #[tauri::command]
 pub fn play_sfx(file_path: String, volume: f32) -> Result<(), String> {
     with_audio(|audio| {
+        // Limpieza: descartamos sinks que ya terminaron de sonar.
         audio.sfx.retain(|s| !s.empty());
 
         let file = File::open(&file_path).map_err(|e| format!("File error: {e}"))?;
@@ -62,7 +63,11 @@ pub fn play_sfx(file_path: String, volume: f32) -> Result<(), String> {
             Sink::try_new(&audio.handle).map_err(|e| format!("Sink error: {e}"))?;
         sink.set_volume(volume.clamp(0.0, 2.0));
         sink.append(source);
-        sink.detach();
+        // ANTES: sink.detach() — el sink se desvinculaba del control y `stop_all_audio`
+        // no lo podía parar. Ahora lo guardamos en `audio.sfx` para que el "Stop todo"
+        // pueda apagarlo. La línea `retain(...)` de arriba purga los terminados así
+        // el Vec no crece sin límite.
+        audio.sfx.push(sink);
         Ok(())
     })
 }

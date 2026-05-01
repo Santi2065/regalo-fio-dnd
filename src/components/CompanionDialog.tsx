@@ -15,6 +15,7 @@ import { readJSON, writeJSON } from "../lib/persistence";
 
 interface Props {
   open: boolean;
+  sessionId: string;
   campaignName: string;
   onClose: () => void;
   onStatusChange?: (status: CompanionStatus) => void;
@@ -28,6 +29,7 @@ const newCharId = () =>
 
 export default function CompanionDialog({
   open,
+  sessionId,
   campaignName,
   onClose,
   onStatusChange,
@@ -109,7 +111,7 @@ export default function CompanionDialog({
     setBusy(true);
     try {
       const pin = pinEnabled ? pinDraft : null;
-      const info = await companionStart(pin, campaignName, characters);
+      const info = await companionStart(sessionId, pin, campaignName, characters);
       const next: CompanionStatus = {
         running: true,
         info,

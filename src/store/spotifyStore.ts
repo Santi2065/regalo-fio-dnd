@@ -17,6 +17,8 @@ export interface SpotifyTrack {
 interface SpotifyStore {
   authenticated: boolean;
   track: SpotifyTrack | null;
+  /** Última vez que `poll` falló y la causa. null si nunca falló o ya recuperó. */
+  lastError: string | null;
   setAuthenticated: (v: boolean) => void;
   setTrack: (t: SpotifyTrack | null) => void;
   poll: () => Promise<void>;
@@ -25,7 +27,8 @@ interface SpotifyStore {
 export const useSpotifyStore = create<SpotifyStore>((set, get) => ({
   authenticated: false,
   track: null,
-  setAuthenticated: (v) => set({ authenticated: v }),
+  lastError: null,
+  setAuthenticated: (v) => set({ authenticated: v, lastError: v ? null : get().lastError }),
   setTrack: (t) => set({ track: t }),
   poll: async () => {
     if (!get().authenticated) return;
@@ -41,11 +44,18 @@ export const useSpotifyStore = create<SpotifyStore>((set, get) => ({
         prev?.is_playing === t?.is_playing &&
         Math.abs((prev?.progress_ms ?? 0) - (t?.progress_ms ?? 0)) < 1500
       ) {
+        // Mismo track sin cambios — limpiamos el error si lo había.
+        if (get().lastError) set({ lastError: null });
         return;
       }
-      set({ track: t });
-    } catch {
-      // ignore (e.g. Spotify not open)
+      set({ track: t, lastError: null });
+    } catch (e) {
+      // Ya no se traga silencioso: el user va a ver "Sin reproducción activa"
+      // en la UI y este log ayuda a diagnosticar refresh tokens corruptos,
+      // rate limits, scopes faltantes, etc.
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[spotify poll]", msg);
+      set({ lastError: msg });
     }
   },
 }));

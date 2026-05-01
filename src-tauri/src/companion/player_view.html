@@ -305,6 +305,15 @@
     rollExpr: "",
     lastRoll: null, // { total, breakdown, expression, ts }
     rolling: false,
+    // Tab activa dentro de la sesión: "main" (handouts + roll) o "chat".
+    sessionTab: "main",
+    // Chat: threads guardados por id de partner ("dm" o token de otro player).
+    chatThreads: {},
+    chatPartners: [],          // [{ kind, id, name }]
+    chatActivePartner: null,   // partner id activo
+    chatInput: "",
+    chatSending: false,
+    chatUnread: {},            // partnerId -> bool (mensajes nuevos no vistos)
   };
 
   const ROLL_PRESETS = ["1d20", "1d20 adv", "1d20 dis", "1d4", "1d6", "1d8", "1d10", "1d12", "1d100"];
@@ -418,6 +427,34 @@
     `;
     wrapper.appendChild(header);
 
+    // Tab bar: Notas (handouts + dados) | Chat
+    const tabBar = document.createElement("div");
+    tabBar.style.cssText = "display:flex;gap:6px;padding:8px 0;border-bottom:1px solid var(--border)";
+    const totalUnread = Object.values(state.chatUnread).filter(Boolean).length;
+    tabBar.innerHTML = `
+      <button id="tab-main" class="btn ${state.sessionTab === "main" ? "" : "btn--ghost"}" style="flex:1;padding:8px;font-size:13px">📨 Notas</button>
+      <button id="tab-chat" class="btn ${state.sessionTab === "chat" ? "" : "btn--ghost"}" style="flex:1;padding:8px;font-size:13px;position:relative">
+        💬 Chat${totalUnread > 0 ? ` <span style="background:var(--gold);color:var(--bg);border-radius:10px;padding:1px 6px;font-size:11px;margin-left:4px">${totalUnread}</span>` : ""}
+      </button>
+    `;
+    wrapper.appendChild(tabBar);
+    setTimeout(() => {
+      document.getElementById("tab-main")?.addEventListener("click", () => {
+        state.sessionTab = "main";
+        render();
+      });
+      document.getElementById("tab-chat")?.addEventListener("click", () => {
+        state.sessionTab = "chat";
+        render();
+        loadChatPartners();
+      });
+    }, 0);
+
+    if (state.sessionTab === "chat") {
+      wrapper.appendChild(renderChat());
+      return wrapper;
+    }
+
     if (state.handouts.length === 0) {
       const placeholder = document.createElement("div");
       placeholder.className = "placeholder";
@@ -507,6 +544,230 @@
     return wrapper;
   }
 
+  // ── Chat (v1.6) ─────────────────────────────────────────────────────────────
+
+  function renderChat() {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;flex-direction:column;flex:1;gap:8px;padding:8px 0";
+
+    // Selector de partner (DM + otros players conectados).
+    const partnerBar = document.createElement("div");
+    partnerBar.style.cssText = "display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch";
+    if (state.chatPartners.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "muted";
+      empty.style.cssText = "font-size:12px;padding:4px";
+      empty.textContent = "Cargando contactos...";
+      partnerBar.appendChild(empty);
+    } else {
+      state.chatPartners.forEach((p) => {
+        const isActive = state.chatActivePartner === p.id;
+        const hasUnread = state.chatUnread[p.id];
+        const btn = document.createElement("button");
+        btn.className = "btn " + (isActive ? "" : "btn--ghost");
+        btn.style.cssText = "white-space:nowrap;padding:6px 12px;font-size:13px;flex-shrink:0;position:relative";
+        btn.innerHTML = `
+          ${p.kind === "dm" ? "🎲" : "🔒"} ${escapeHtml(p.name)}
+          ${hasUnread ? '<span style="position:absolute;top:2px;right:2px;width:8px;height:8px;background:var(--gold);border-radius:50%"></span>' : ""}
+        `;
+        btn.addEventListener("click", () => {
+          state.chatActivePartner = p.id;
+          state.chatUnread[p.id] = false;
+          render();
+          // Auto-scroll to bottom on next paint.
+          setTimeout(() => {
+            const c = document.getElementById("chat-thread");
+            if (c) c.scrollTop = c.scrollHeight;
+          }, 50);
+        });
+        partnerBar.appendChild(btn);
+      });
+    }
+    wrap.appendChild(partnerBar);
+
+    if (!state.chatActivePartner) {
+      const hint = document.createElement("div");
+      hint.className = "placeholder";
+      hint.innerHTML = `
+        <div class="icon">💬</div>
+        <h2>Elegí con quién chatear</h2>
+        <p class="muted">Las conversaciones son privadas. Solo vos y la persona elegida ven los mensajes.</p>
+      `;
+      wrap.appendChild(hint);
+      return wrap;
+    }
+
+    const partner = state.chatPartners.find((p) => p.id === state.chatActivePartner);
+    const partnerName = partner?.name || "?";
+    const isDm = state.chatActivePartner === "dm";
+
+    // Header informativo del thread.
+    const threadHead = document.createElement("div");
+    threadHead.className = "muted";
+    threadHead.style.cssText = "font-size:12px;text-align:center;padding:4px 0;border-bottom:1px solid var(--border)";
+    threadHead.textContent = isDm
+      ? "🔒 Conversación privada con el DM"
+      : `🔒 Susurro con ${partnerName}`;
+    wrap.appendChild(threadHead);
+
+    // Lista de mensajes.
+    const list = document.createElement("div");
+    list.id = "chat-thread";
+    list.style.cssText = "flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:4px 0;min-height:200px";
+    const messages = state.chatThreads[state.chatActivePartner] || [];
+    if (messages.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "muted center";
+      empty.style.cssText = "font-size:12px;padding:24px 0";
+      empty.textContent = "No hay mensajes todavía. Escribí abajo para empezar.";
+      list.appendChild(empty);
+    } else {
+      messages.forEach((m) => {
+        const isMine = m.sender_token === currentToken();
+        const bubble = document.createElement("div");
+        bubble.style.cssText = `
+          max-width:80%;padding:8px 12px;border-radius:12px;font-size:14px;
+          background:${isMine ? "var(--gold)" : "var(--card)"};
+          color:${isMine ? "var(--bg)" : "var(--text)"};
+          align-self:${isMine ? "flex-end" : "flex-start"};
+          word-break:break-word;
+        `;
+        const time = new Date(m.sent_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        bubble.innerHTML = `
+          <div style="font-size:11px;opacity:0.7;margin-bottom:2px">${escapeHtml(m.sender_name)} · ${time}</div>
+          <div>${escapeHtml(m.content)}</div>
+        `;
+        list.appendChild(bubble);
+      });
+    }
+    wrap.appendChild(list);
+
+    // Input bar.
+    const inputBar = document.createElement("div");
+    inputBar.className = "roll-bar";
+    inputBar.innerHTML = `
+      <input id="chat-input" type="text" placeholder="Escribí un mensaje..." value="${escapeHtml(state.chatInput)}" autocomplete="off" maxlength="2000" />
+      <button id="chat-send-btn"${state.chatSending ? " disabled" : ""}>📤 Enviar</button>
+    `;
+    wrap.appendChild(inputBar);
+
+    setTimeout(() => {
+      const inp = document.getElementById("chat-input");
+      const btn = document.getElementById("chat-send-btn");
+      if (inp) {
+        inp.addEventListener("input", (e) => { state.chatInput = e.target.value; });
+        inp.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            sendChat();
+          }
+        });
+        // No autofocus — sería molesto en mobile.
+      }
+      if (btn) btn.addEventListener("click", () => sendChat());
+      const t = document.getElementById("chat-thread");
+      if (t) t.scrollTop = t.scrollHeight;
+    }, 0);
+
+    return wrap;
+  }
+
+  function currentToken() {
+    return localStorage.getItem(STORAGE_KEY) || "";
+  }
+
+  async function loadChatPartners() {
+    const token = currentToken();
+    if (!token) return;
+    try {
+      const r = await fetch("/api/chat/partners", {
+        headers: { Authorization: "Bearer " + token },
+      });
+      if (!r.ok) return;
+      const partners = await r.json();
+      state.chatPartners = partners;
+      // Si el partner activo desapareció (player desconectado), reseteamos.
+      if (state.chatActivePartner && !partners.find((p) => p.id === state.chatActivePartner)) {
+        state.chatActivePartner = null;
+      }
+      render();
+    } catch (e) {
+      console.warn("[chat] loadPartners failed", e);
+    }
+  }
+
+  async function sendChat() {
+    const content = state.chatInput.trim();
+    if (!content || !state.chatActivePartner || state.chatSending) return;
+    const token = currentToken();
+    if (!token) return;
+    state.chatSending = true;
+    render();
+    try {
+      const r = await fetch("/api/chat/send", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "Authorization": "Bearer " + token,
+        },
+        body: JSON.stringify({
+          recipient_token: state.chatActivePartner, // "dm" o token de otro player
+          content,
+        }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.error || "rechazado");
+      }
+      // El mensaje propio NO viene por WS (el server filtra al sender).
+      // Lo agregamos al thread localmente con la info que tenemos.
+      const partner = state.chatPartners.find((p) => p.id === state.chatActivePartner);
+      pushChatMessage({
+        chat_id: "local-" + Date.now(),
+        sender_kind: "player",
+        sender_token: token,
+        sender_name: state.me?.character?.name || "Yo",
+        recipient_kind: partner?.kind || "player",
+        recipient_token: state.chatActivePartner === "dm" ? null : state.chatActivePartner,
+        recipient_name: partner?.name || "?",
+        content,
+        sent_at: new Date().toISOString(),
+      });
+      state.chatInput = "";
+    } catch (e) {
+      state.error = "No se pudo enviar: " + e.message;
+    } finally {
+      state.chatSending = false;
+      render();
+    }
+  }
+
+  function pushChatMessage(msg) {
+    // Determinamos a qué thread pertenece este mensaje desde el punto de
+    // vista del player que lo recibe: el "partner" es el OTRO extremo.
+    const myToken = currentToken();
+    let partnerId;
+    if (msg.sender_token === myToken) {
+      // Yo mandé → partner es el destinatario.
+      partnerId = msg.recipient_kind === "dm" ? "dm" : msg.recipient_token;
+    } else {
+      // Yo recibí → partner es el sender.
+      partnerId = msg.sender_kind === "dm" ? "dm" : msg.sender_token;
+    }
+    if (!partnerId) return;
+    if (!state.chatThreads[partnerId]) state.chatThreads[partnerId] = [];
+    // Dedup por chat_id (el sender lo agrega localmente, pero el receptor
+    // lo recibe via WS — para el receptor son distintos por chat_id).
+    const exists = state.chatThreads[partnerId].some((m) => m.chat_id === msg.chat_id);
+    if (!exists) {
+      state.chatThreads[partnerId].push(msg);
+    }
+    // Marcar unread si no es el partner activo y no es propio.
+    if (state.chatActivePartner !== partnerId && msg.sender_token !== myToken) {
+      state.chatUnread[partnerId] = true;
+    }
+  }
+
   function initials(name) {
     return name.split(/\s+/).filter(Boolean).slice(0, 2).map(s => s[0].toUpperCase()).join("");
   }
@@ -587,6 +848,10 @@
   function handleEvent(evt) {
     if (evt.type === "hello") {
       // No-op por ahora.
+    } else if (evt.type === "chat") {
+      pushChatMessage(evt);
+      try { navigator.vibrate?.(60); } catch {}
+      render();
     } else if (evt.type === "handout") {
       const h = { ...evt, isNew: true };
       state.handouts.push(h);
@@ -704,6 +969,10 @@
           render();
         }
       }).catch(() => {});
+    } else if (state.screen === "session" && state.sessionTab === "chat") {
+      // Refrescar partners cuando estamos viendo el chat — players pueden
+      // entrar/salir y queremos verlos en vivo.
+      loadChatPartners();
     }
   }, 4000);
   </script>

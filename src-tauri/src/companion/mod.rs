@@ -21,8 +21,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tokio::sync::{broadcast, oneshot};
+
+use crate::AppState;
 
 mod server;
 
@@ -74,6 +76,10 @@ pub struct CompanionState {
 #[derive(Debug)]
 pub struct PublicState {
     pub campaign_name: String,
+    /// ID de la sesión D&D activa. Se usa para asociar chats a la sesión
+    /// correcta cuando se persisten desde el HTTP handler. None mientras el
+    /// companion no está corriendo.
+    pub session_id: Option<String>,
     pub pin: Option<String>,
     pub characters: Vec<Character>,
     /// token → conexión. Generado por POST /api/connect.
@@ -90,6 +96,7 @@ impl Default for PublicState {
         let (tx, _rx) = broadcast::channel(64);
         Self {
             campaign_name: String::new(),
+            session_id: None,
             pin: None,
             characters: Vec::new(),
             connections: HashMap::new(),
@@ -113,6 +120,21 @@ pub enum PlayerEvent {
     },
     #[serde(rename = "kicked")]
     Kicked { to_token: String },
+    /// Chat: el server reenvía esto SOLO al destinatario (el handler de WS
+    /// filtra por `recipient_token`). El DM recibe un evento espejo via
+    /// `DmEvent::Chat` siempre, sin importar a quién va dirigido.
+    #[serde(rename = "chat")]
+    Chat {
+        chat_id: String,
+        sender_kind: String,                 // "dm" | "player"
+        sender_token: Option<String>,        // None si sender_kind="dm"
+        sender_name: String,
+        recipient_kind: String,              // "dm" | "player"
+        recipient_token: Option<String>,     // None si recipient_kind="dm"
+        recipient_name: String,
+        content: String,
+        sent_at: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +161,37 @@ pub enum DmEvent {
     PlayerConnected { token: String, name: String },
     #[serde(rename = "player_disconnected")]
     PlayerDisconnected { token: String, name: String },
+    /// Espejo de TODO mensaje de chat — el DM ve siempre todos los chats,
+    /// incluso los que aparentan ser entre players. Esto es a propósito
+    /// (los players juegan con sensación de privacidad pero el DM tiene
+    /// contexto narrativo completo).
+    #[serde(rename = "chat")]
+    Chat {
+        chat_id: String,
+        sender_kind: String,
+        sender_token: Option<String>,
+        sender_name: String,
+        recipient_kind: String,
+        recipient_token: Option<String>,
+        recipient_name: String,
+        content: String,
+        sent_at: String,
+    },
+}
+
+/// Persisted chat message — same shape as the `Chat` events but in DB form.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub id: String,
+    pub session_id: String,
+    pub sender_kind: String,
+    pub sender_token: Option<String>,
+    pub sender_name: String,
+    pub recipient_kind: String,
+    pub recipient_token: Option<String>,
+    pub recipient_name: String,
+    pub content: String,
+    pub sent_at: String,
 }
 
 #[derive(Debug, Clone)]
@@ -184,6 +237,7 @@ fn generate_pin() -> String {
 
 #[tauri::command]
 pub async fn companion_start(
+    session_id: String,
     pin: Option<String>,
     campaign_name: Option<String>,
     characters: Option<Vec<Character>>,
@@ -212,6 +266,7 @@ pub async fn companion_start(
 
     {
         let mut public = guard.public_state.lock().map_err(|e| e.to_string())?;
+        public.session_id = Some(session_id);
         public.campaign_name = campaign_name.unwrap_or_else(|| "Sesión D&D".to_string());
         public.pin = validated_pin.clone();
         public.characters = characters.unwrap_or_default();
@@ -260,6 +315,7 @@ pub fn companion_stop(
     if let Ok(mut public) = guard.public_state.lock() {
         public.connections.clear();
         public.started_at = None;
+        public.session_id = None;
     }
     Ok(())
 }
@@ -341,4 +397,160 @@ pub fn companion_send_handout(
 #[tauri::command]
 pub fn companion_generate_pin() -> String {
     generate_pin()
+}
+
+// ── Chat commands ────────────────────────────────────────────────────────────
+
+/// El DM manda un mensaje a un player específico (o "dm-self" si quiere
+/// guardarse una nota propia, aunque eso es raro). Persiste a DB, broadcast
+/// como `PlayerEvent::Chat` (filtrado por el WS handler para que solo lo
+/// reciba el destinatario), y emite `DmEvent::Chat` al frontend desktop
+/// como espejo (el DM ve su propio mensaje).
+#[tauri::command]
+pub fn companion_send_chat(
+    session_id: String,
+    recipient_token: String,
+    content: String,
+    app: AppHandle,
+    state: tauri::State<'_, StdMutex<CompanionState>>,
+    app_state: tauri::State<'_, AppState>,
+) -> Result<ChatMessage, String> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return Err("Mensaje vacío".to_string());
+    }
+    if trimmed.len() > 2000 {
+        return Err("Mensaje demasiado largo (máx 2000 caracteres)".to_string());
+    }
+
+    let guard = state.lock().map_err(|e| e.to_string())?;
+    if guard.info.is_none() {
+        return Err("Companion no está activo".to_string());
+    }
+
+    let public = guard.public_state.lock().map_err(|e| e.to_string())?;
+    let recipient_name = public
+        .connections
+        .get(&recipient_token)
+        .map(|c| c.character.name.clone())
+        .ok_or_else(|| "El player ya no está conectado".to_string())?;
+
+    let msg = ChatMessage {
+        id: uuid::Uuid::new_v4().to_string(),
+        session_id: session_id.clone(),
+        sender_kind: "dm".to_string(),
+        sender_token: None,
+        sender_name: "DM".to_string(),
+        recipient_kind: "player".to_string(),
+        recipient_token: Some(recipient_token.clone()),
+        recipient_name: recipient_name.clone(),
+        content: trimmed.to_string(),
+        sent_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    persist_chat(&app_state, &msg)?;
+
+    // Push al celu del destinatario (filtrado por WS handler).
+    let _ = public.events.send(PlayerEvent::Chat {
+        chat_id: msg.id.clone(),
+        sender_kind: msg.sender_kind.clone(),
+        sender_token: msg.sender_token.clone(),
+        sender_name: msg.sender_name.clone(),
+        recipient_kind: msg.recipient_kind.clone(),
+        recipient_token: msg.recipient_token.clone(),
+        recipient_name: msg.recipient_name.clone(),
+        content: msg.content.clone(),
+        sent_at: msg.sent_at.clone(),
+    });
+
+    // Espejo al DM frontend (lo que mandó él mismo aparece en su propio chat).
+    let _ = app.emit(
+        "companion-event",
+        DmEvent::Chat {
+            chat_id: msg.id.clone(),
+            sender_kind: msg.sender_kind.clone(),
+            sender_token: msg.sender_token.clone(),
+            sender_name: msg.sender_name.clone(),
+            recipient_kind: msg.recipient_kind.clone(),
+            recipient_token: msg.recipient_token.clone(),
+            recipient_name: msg.recipient_name.clone(),
+            content: msg.content.clone(),
+            sent_at: msg.sent_at.clone(),
+        },
+    );
+
+    Ok(msg)
+}
+
+/// Devuelve los últimos N mensajes de chat de la sesión, en orden cronológico.
+#[tauri::command]
+pub fn companion_get_chats(
+    session_id: String,
+    limit: Option<u32>,
+    app_state: tauri::State<'_, AppState>,
+) -> Result<Vec<ChatMessage>, String> {
+    let conn = app_state.db.lock().map_err(|e| e.to_string())?;
+    let limit = limit.unwrap_or(500).min(2000);
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, session_id, sender_kind, sender_token, sender_name,
+                    recipient_kind, recipient_token, recipient_name,
+                    content, sent_at
+             FROM companion_chats
+             WHERE session_id = ?1
+             ORDER BY sent_at DESC
+             LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut rows: Vec<ChatMessage> = stmt
+        .query_map(rusqlite::params![session_id, limit], |row| {
+            Ok(ChatMessage {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                sender_kind: row.get(2)?,
+                sender_token: row.get(3)?,
+                sender_name: row.get(4)?,
+                recipient_kind: row.get(5)?,
+                recipient_token: row.get(6)?,
+                recipient_name: row.get(7)?,
+                content: row.get(8)?,
+                sent_at: row.get(9)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Volvemos al orden cronológico ascendente para el render del thread.
+    rows.reverse();
+    Ok(rows)
+}
+
+/// Helper: persiste un ChatMessage a la tabla `companion_chats`. Lo usan
+/// `companion_send_chat` (DM → player) y el HTTP handler de `/api/chat/send`
+/// (player → cualquiera).
+pub fn persist_chat(app_state: &AppState, msg: &ChatMessage) -> Result<(), String> {
+    let conn = app_state.db.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO companion_chats
+            (id, session_id, sender_kind, sender_token, sender_name,
+             recipient_kind, recipient_token, recipient_name,
+             content, sent_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        rusqlite::params![
+            msg.id,
+            msg.session_id,
+            msg.sender_kind,
+            msg.sender_token,
+            msg.sender_name,
+            msg.recipient_kind,
+            msg.recipient_token,
+            msg.recipient_name,
+            msg.content,
+            msg.sent_at,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }

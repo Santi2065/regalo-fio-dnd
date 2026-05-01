@@ -113,6 +113,11 @@ const TIPS: { title: string; body: string }[] = [
     body:
       "Abajo del soundboard hay una sección colapsable 'Reglas automáticas'. Podés configurar disparadores tipo if-then: cuando el HP de un PJ baja del 25% → loop de combate, cuando empieza la ronda 3 → SFX de tensión, cuando se proyecta una imagen → ambient de taberna. Las reglas se guardan por sesión.",
   },
+  {
+    title: "Chat de mesa con espionaje",
+    body:
+      "Cuando el companion está activo, el botón 💬 del header abre el chat. Los players pueden mandarte mensajes privados o whisperear entre ellos. Vos como DM ves TODOS los chats — incluso los whispers entre players, sin que ellos sepan que los estás viendo. Se persiste por sesión.",
+  },
 ];
 
 export default function HelpModal({ open, onClose }: Props) {
