@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { searchManuals, type SearchHit } from "../lib/manuals";
 import { KeyboardKey } from "./ui";
+import ManualPageViewer from "./ManualPageViewer";
 
 interface Props {
   open: boolean;
@@ -28,6 +29,7 @@ export default function ManualSearch({ open, onClose }: Props) {
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
+  const [viewerHit, setViewerHit] = useState<SearchHit | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -72,6 +74,9 @@ export default function ManualSearch({ open, onClose }: Props) {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        // If the viewer is open, the viewer's own Esc handler closes it.
+        // Don't close the search overlay too — let it handle its own.
+        if (viewerHit) return;
         e.preventDefault();
         onClose();
       } else if (e.key === "ArrowDown") {
@@ -80,11 +85,17 @@ export default function ManualSearch({ open, onClose }: Props) {
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setActiveIdx((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter") {
+        const hit = hits[activeIdx];
+        if (hit) {
+          e.preventDefault();
+          setViewerHit(hit);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, hits.length, onClose]);
+  }, [open, hits, activeIdx, onClose, viewerHit]);
 
   if (!open) return null;
 
@@ -134,6 +145,7 @@ export default function ManualSearch({ open, onClose }: Props) {
                       : "hover:bg-parchment-800/40"
                   }`}
                   onMouseEnter={() => setActiveIdx(idx)}
+                  onClick={() => setViewerHit(hit)}
                 >
                   <div className="flex items-center gap-2 text-xs text-vellum-300 mb-1">
                     <span className="text-gold-300">📖 {hit.manual_name}</span>
@@ -162,14 +174,23 @@ export default function ManualSearch({ open, onClose }: Props) {
               <KeyboardKey size="sm">↑↓</KeyboardKey> navegar
             </span>
             <span>
+              <KeyboardKey size="sm">↵</KeyboardKey> abrir
+            </span>
+            <span>
               <KeyboardKey size="sm">Esc</KeyboardKey> cerrar
             </span>
           </div>
-          <span className="text-vellum-500">
-            Búsqueda local · Phase A.1 (substring)
-          </span>
+          <span className="text-vellum-500">Búsqueda local · híbrida</span>
         </div>
       </div>
+
+      <ManualPageViewer
+        open={viewerHit !== null}
+        manualName={viewerHit?.manual_name ?? ""}
+        filePath={viewerHit?.manual_file_path ?? ""}
+        pageNumber={viewerHit?.page_number ?? 1}
+        onClose={() => setViewerHit(null)}
+      />
     </div>,
     document.body
   );

@@ -14,6 +14,7 @@ export interface Manual {
 export interface SearchHit {
   manual_id: string;
   manual_name: string;
+  manual_file_path: string;
   page_number: number;
   section_path: string | null;
   text: string;
@@ -22,10 +23,30 @@ export interface SearchHit {
 
 export interface ImportProgress {
   job_id: string;
-  phase: "extracting" | "chunking" | "inserting" | "done" | "error";
+  phase:
+    | "extracting"
+    | "chunking"
+    | "embedding"
+    | "inserting"
+    | "stat_blocks"
+    | "done"
+    | "error";
   percent: number;
   status_text: string;
 }
+
+export interface StatBlock {
+  id: string;
+  manual_id: string;
+  manual_name: string;
+  manual_file_path: string;
+  name: string;
+  page_number: number;
+  raw_text: string;
+}
+
+export const getStatBlockByName = (name: string) =>
+  invoke<StatBlock | null>("get_stat_block_by_name", { name });
 
 export const getManuals = () => invoke<Manual[]>("get_manuals");
 

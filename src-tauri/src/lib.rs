@@ -57,6 +57,7 @@ pub fn run() {
             manuals::import_manual,
             manuals::delete_manual,
             manuals::search_manuals,
+            manuals::get_stat_block_by_name,
             // Guión
             guion::get_guion,
             guion::save_guion,
