@@ -1,6 +1,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Asset } from "../lib/types";
+import { toast } from "../lib/toast";
+import {
+  playOneShot,
+  toggleLoop,
+  stopLoop,
+  stopAllAudio,
+  channels,
+} from "../lib/audioController";
 
 interface SoundboardSlot {
   id: string;
@@ -67,36 +75,35 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
     });
   }, [sessionId]);
 
-  const handleTrigger = async (slot: SoundboardSlot, _position: number) => {
+  const handleTrigger = async (slot: SoundboardSlot) => {
     if (!slot.file_path) return;
 
     const vol = slot.volume * masterVolume;
 
-    if (slot.loop_enabled) {
-      // Toggle ambient
-      const channel = `ambient-${slot.id}`;
-      if (ambient.has(slot.id)) {
-        await invoke("stop_ambient", { channel });
+    try {
+      if (slot.loop_enabled) {
+        const channel = channels.soundboardSlot(slot.id);
+        const isNowActive = await toggleLoop(channel, slot.file_path, vol);
         setAmbient((prev) => {
           const next = new Map(prev);
-          next.delete(slot.id);
+          if (isNowActive) next.set(slot.id, channel);
+          else next.delete(slot.id);
           return next;
         });
       } else {
-        await invoke("play_ambient", { channel, filePath: slot.file_path, volume: vol });
-        setAmbient((prev) => new Map(prev).set(slot.id, channel));
+        setPlaying((prev) => new Set(prev).add(slot.id));
+        try {
+          await playOneShot(slot.file_path, vol);
+        } finally {
+          setTimeout(
+            () => setPlaying((prev) => { const n = new Set(prev); n.delete(slot.id); return n; }),
+            500
+          );
+        }
       }
-    } else {
-      // One-shot SFX
-      setPlaying((prev) => new Set(prev).add(slot.id));
-      try {
-        await invoke("play_sfx", { filePath: slot.file_path, volume: vol });
-      } finally {
-        setTimeout(
-          () => setPlaying((prev) => { const n = new Set(prev); n.delete(slot.id); return n; }),
-          500
-        );
-      }
+    } catch (e) {
+      console.error("[SoundboardPanel] trigger failed", e);
+      toast.error("No se pudo reproducir el sonido");
     }
   };
 
@@ -127,16 +134,21 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
   };
 
   const handleRemoveSlot = async (slot: SoundboardSlot, position: number) => {
-    if (ambient.has(slot.id)) {
-      await invoke("stop_ambient", { channel: `ambient-${slot.id}` });
-      setAmbient((prev) => { const n = new Map(prev); n.delete(slot.id); return n; });
+    try {
+      if (ambient.has(slot.id)) {
+        await stopLoop(channels.soundboardSlot(slot.id));
+        setAmbient((prev) => { const n = new Map(prev); n.delete(slot.id); return n; });
+      }
+      await invoke("remove_soundboard_slot", { id: slot.id });
+      setSlots((prev) => {
+        const next = [...prev];
+        next[position] = null;
+        return next;
+      });
+    } catch (e) {
+      console.error("[SoundboardPanel] remove slot failed", e);
+      toast.error("No se pudo quitar la celda");
     }
-    await invoke("remove_soundboard_slot", { id: slot.id });
-    setSlots((prev) => {
-      const next = [...prev];
-      next[position] = null;
-      return next;
-    });
   };
 
   // ── Global hotkey listener ─────────────────────────────────────────────────
@@ -153,7 +165,7 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
       for (const slot of slots) {
         if (slot && slot.hotkey && slot.hotkey.toLowerCase() === key) {
           e.preventDefault();
-          handleTrigger(slot, slot.slot_position);
+          handleTrigger(slot);
           return;
         }
       }
@@ -179,9 +191,13 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
   };
 
   const stopAll = async () => {
-    await invoke("stop_all_audio");
-    setAmbient(new Map());
-    setPlaying(new Set());
+    try {
+      await stopAllAudio();
+      setAmbient(new Map());
+      setPlaying(new Set());
+    } catch (e) {
+      console.error("[SoundboardPanel] stopAll failed", e);
+    }
   };
 
   return (
@@ -231,7 +247,7 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
                 isPlaying={slot ? playing.has(slot.id) : false}
                 isAmbient={slot ? ambient.has(slot.id) : false}
                 isDragOver={dragOverPos === i}
-                onTrigger={() => slot && handleTrigger(slot, i)}
+                onTrigger={() => slot && handleTrigger(slot)}
                 onRemove={() => slot && handleRemoveSlot(slot, i)}
                 onEdit={() => slot && setEditingSlot({ ...slot })}
                 onDragOver={() => setDragOverPos(i)}
@@ -457,11 +473,11 @@ function SoundboardCell({
 
   return (
     <div
-      className={`relative rounded-xl border-2 aspect-square flex flex-col items-center justify-center p-3 transition-all select-none
-        ${isDragOver ? "border-amber-400 scale-105" : slot ? "border-transparent" : "border-stone-700 border-dashed"}
+      className={`group relative rounded-xl border-2 aspect-square flex flex-col items-center justify-center p-3 transition-all select-none
+        ${isDragOver ? "border-gold-400 scale-105 bg-gold-900/20" : slot ? "border-transparent" : "border-parchment-700 border-dashed hover:border-parchment-600"}
         ${slot ? "cursor-pointer hover:brightness-110 active:scale-95" : "cursor-default"}
-        ${isPlaying ? "ring-2 ring-white/60 scale-95" : ""}
-        ${isAmbient ? "ring-2 ring-green-400/60" : ""}
+        ${isPlaying ? "ring-2 ring-vellum-50/60 scale-95" : ""}
+        ${isAmbient ? "ring-2 ring-success-500/60" : ""}
       `}
       style={{ backgroundColor: slot ? bgColor + "33" : undefined, borderColor: slot ? bgColor : undefined }}
       onClick={onTrigger}
@@ -469,35 +485,50 @@ function SoundboardCell({
       onDragOver={handleDragOver}
       onDragLeave={onDragLeave}
       onDrop={handleDrop}
+      title={slot ? "Click = disparar · Click derecho = editar" : "Arrastrá un audio aquí"}
     >
       {slot ? (
         <>
           <div className="text-2xl mb-1">
             {isAmbient ? "🎵" : slot.loop_enabled ? "🔁" : "🔊"}
           </div>
-          <p className="text-xs text-center text-stone-200 font-medium leading-tight truncate w-full text-center">
+          <p className="text-xs text-center text-vellum-100 font-medium leading-tight truncate w-full">
             {slot.label ?? slot.asset_name ?? "—"}
           </p>
           {slot.loop_enabled && (
-            <span className="text-xs text-stone-500 mt-0.5">
-              {isAmbient ? "▶ playing" : "loop"}
+            <span className="text-[10px] text-vellum-300 mt-0.5">
+              {isAmbient ? "▶ sonando" : "loop"}
             </span>
           )}
           {slot.hotkey && (
-            <kbd className="absolute bottom-1 right-1 bg-black/40 text-stone-400 text-[9px] px-1 rounded font-mono leading-tight">
+            <kbd className="absolute bottom-1 right-1 bg-parchment-950/70 text-gold-300 text-[9px] px-1 rounded font-mono leading-tight border border-parchment-700">
               {slot.hotkey}
             </kbd>
           )}
 
+          {/* Right-click hint: small dots top-left, fade in on hover */}
+          <span
+            className="absolute top-1 left-1.5 text-vellum-400/60 text-[10px] leading-none opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+            aria-hidden
+          >
+            ⋯
+          </span>
+
           <button
             onClick={(e) => { e.stopPropagation(); onRemove(); }}
-            className="absolute top-1 right-1 text-stone-600 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-opacity w-4 h-4 flex items-center justify-center"
+            className="absolute top-1 right-1 text-vellum-400 hover:text-danger-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity w-4 h-4 flex items-center justify-center"
+            title="Quitar de la celda"
           >
             ×
           </button>
         </>
       ) : (
-        <div className="text-stone-700 text-2xl">+</div>
+        <>
+          <div className="text-parchment-600 text-2xl leading-none">+</div>
+          <p className="text-[10px] text-vellum-400/60 mt-1 text-center leading-tight">
+            Arrastrá un audio
+          </p>
+        </>
       )}
     </div>
   );

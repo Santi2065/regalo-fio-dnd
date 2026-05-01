@@ -4,6 +4,17 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Asset } from "../lib/types";
+import { toast } from "../lib/toast";
+import { ConfirmDialog } from "./ui";
+import { readJSON, writeJSON, removeKey } from "../lib/persistence";
+import { useDebouncedEffect } from "../lib/useDebouncedEffect";
+import { formatDateTime } from "../lib/formatDate";
+import {
+  playOneShot,
+  toggleLoop,
+  stopAllAudio,
+  channels,
+} from "../lib/audioController";
 import {
   parseGuion,
   buildCueToken,
@@ -11,6 +22,34 @@ import {
   type CueType,
   type Cue,
 } from "../lib/guionParser";
+
+// Crash-recovery backup: mirror unsaved guion content to localStorage so
+// that if the app dies before save_guion runs, we can offer to restore on
+// next load. Cleared on every successful save.
+
+const BACKUP_KEY = (sessionId: string) => `guion-backup-${sessionId}`;
+const BACKUP_DEBOUNCE_MS = 800;
+
+interface GuionBackup {
+  content: string;
+  savedAt: string;
+}
+
+function readBackup(sessionId: string): GuionBackup | null {
+  const data = readJSON<GuionBackup | null>(BACKUP_KEY(sessionId), null);
+  return data && typeof data.content === "string" ? data : null;
+}
+
+function writeBackup(sessionId: string, content: string) {
+  writeJSON(BACKUP_KEY(sessionId), {
+    content,
+    savedAt: new Date().toISOString(),
+  } satisfies GuionBackup);
+}
+
+function clearBackup(sessionId: string) {
+  removeKey(BACKUP_KEY(sessionId));
+}
 
 interface Props {
   sessionId: string;
@@ -23,30 +62,68 @@ export default function GuionEditor({ sessionId, mode }: Props) {
   const [saving, setSaving] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [recoveredBackup, setRecoveredBackup] = useState<GuionBackup | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // ── Load guion + assets ───────────────────────────────────────────────────
+  // ── Load guion + assets, check for crash-recovery backup ─────────────────
   useEffect(() => {
     Promise.all([
       invoke<{ content: string }>("get_guion", { sessionId }),
       invoke<Asset[]>("get_assets", { sessionId, assetTypeFilter: null }),
-    ]).then(([guion, allAssets]) => {
-      setContent(guion.content);
-      setSavedContent(guion.content);
-      setAssets(allAssets);
-      setLoading(false);
-    });
+    ])
+      .then(([guion, allAssets]) => {
+        setContent(guion.content);
+        setSavedContent(guion.content);
+        setAssets(allAssets);
+        setLoading(false);
+
+        // Crash recovery: if a backup exists and it differs from what's in
+        // the DB, the app probably died before save_guion ran. Offer to
+        // restore the local copy.
+        const backup = readBackup(sessionId);
+        if (backup && backup.content !== guion.content) {
+          setRecoveredBackup(backup);
+        } else if (backup) {
+          // Backup matches DB — already saved successfully, just clear it.
+          clearBackup(sessionId);
+        }
+      })
+      .catch((e) => {
+        console.error("[GuionEditor] load failed", e);
+        toast.error("No se pudo cargar el guión");
+        setLoading(false);
+      });
   }, [sessionId]);
 
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    try {
-      await invoke("save_guion", { sessionId, content });
-      setSavedContent(content);
-    } finally {
-      setSaving(false);
-    }
-  }, [sessionId, content]);
+  const handleSave = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      setSaving(true);
+      try {
+        await invoke("save_guion", { sessionId, content });
+        setSavedContent(content);
+        clearBackup(sessionId);
+        if (!opts?.silent) toast.success("Guión guardado");
+      } catch (e) {
+        console.error("[GuionEditor] save failed", e);
+        toast.error("No se pudo guardar el guión");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [sessionId, content]
+  );
+
+  // Local backup of unsaved changes for crash recovery.
+  useEffect(() => {
+    if (!loading && content === savedContent) clearBackup(sessionId);
+  }, [content, savedContent, sessionId, loading]);
+
+  useDebouncedEffect(
+    () => writeBackup(sessionId, content),
+    [content, sessionId],
+    BACKUP_DEBOUNCE_MS,
+    !loading && content !== savedContent
+  );
 
   // Auto-save Ctrl+S
   useEffect(() => {
@@ -60,12 +137,13 @@ export default function GuionEditor({ sessionId, mode }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [handleSave, mode]);
 
-  // Auto-save when switching to live
+  // Auto-save when switching to live. Depend on the latest handleSave so
+  // we don't capture a stale closure with old content.
   useEffect(() => {
     if (mode === "live" && content !== savedContent) {
-      handleSave();
+      handleSave({ silent: true });
     }
-  }, [mode]);
+  }, [mode, content, savedContent, handleSave]);
 
   const isDirty = content !== savedContent;
 
@@ -77,11 +155,7 @@ export default function GuionEditor({ sessionId, mode }: Props) {
     const asset: Asset = JSON.parse(data);
 
     const cueType: CueType =
-      asset.asset_type === "image" || asset.asset_type === "video"
-        ? "project"
-        : asset.asset_type === "audio"
-        ? "sfx"
-        : "sfx";
+      asset.asset_type === "image" || asset.asset_type === "video" ? "project" : "sfx";
 
     const token = buildCueToken(cueType, asset.id, asset.name.replace(/\.[^.]+$/, ""));
     insertAtCursor(token);
@@ -132,7 +206,7 @@ export default function GuionEditor({ sessionId, mode }: Props) {
                 <span className="text-xs text-amber-500">Sin guardar</span>
               )}
               <button
-                onClick={handleSave}
+                onClick={() => handleSave()}
                 disabled={saving || !isDirty}
                 className="bg-amber-700 hover:bg-amber-600 disabled:opacity-40 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
               >
@@ -145,8 +219,9 @@ export default function GuionEditor({ sessionId, mode }: Props) {
         {mode === "live" && (
           <div className="ml-auto flex items-center gap-2">
             <button
-              onClick={() => invoke("stop_all_audio")}
+              onClick={() => stopAllAudio()}
               className="bg-red-900 hover:bg-red-800 text-red-200 px-3 py-1 rounded text-xs font-medium transition-colors"
+              title="Detener todos los SFX y ambientes que estén sonando"
             >
               ⏹ Stop todo
             </button>
@@ -172,6 +247,30 @@ export default function GuionEditor({ sessionId, mode }: Props) {
           />
         )}
       </div>
+
+      <ConfirmDialog
+        open={recoveredBackup !== null}
+        title="¿Restaurar borrador local?"
+        description={
+          recoveredBackup
+            ? `Encontré cambios sin guardar en este guión (último intento: ${formatDateTime(recoveredBackup.savedAt)}). Esto suele pasar si la app se cerró antes de guardar. ¿Querés recuperar esa versión?`
+            : ""
+        }
+        confirmLabel="Restaurar borrador"
+        cancelLabel="Descartar"
+        onCancel={() => {
+          clearBackup(sessionId);
+          setRecoveredBackup(null);
+          toast.info("Borrador descartado", 1500);
+        }}
+        onConfirm={() => {
+          if (recoveredBackup) {
+            setContent(recoveredBackup.content);
+            toast.info("Borrador restaurado — guardalo con Ctrl+S", 3000);
+          }
+          setRecoveredBackup(null);
+        }}
+      />
     </div>
   );
 }
@@ -335,11 +434,10 @@ function PrepAssetRow({ asset, defaultCueType, onInsert }: PrepAssetRowProps) {
 
 interface LiveProps {
   content: string;
-  sessionId: string;
   assets: Asset[];
 }
 
-function LiveMode({ content, assets }: Omit<LiveProps, "sessionId">) {
+function LiveMode({ content, assets }: LiveProps) {
   const [triggered, setTriggered] = useState<Set<string>>(new Set()); // assetId → triggered once
   const [ambientActive, setAmbientActive] = useState<Set<string>>(new Set()); // assetId → looping
   const [currentProject, setCurrentProject] = useState<string | null>(null); // assetId
@@ -350,25 +448,33 @@ function LiveMode({ content, assets }: Omit<LiveProps, "sessionId">) {
     const asset = assetMap[cue.assetId];
     if (!asset) return;
 
-    if (cue.type === "sfx") {
-      await invoke("play_sfx", { filePath: asset.file_path, volume: 1.0 });
-      setTriggered((prev) => new Set(prev).add(cue.assetId));
-    } else if (cue.type === "ambient") {
-      const channel = `ambient-${cue.assetId}`;
-      if (ambientActive.has(cue.assetId)) {
-        await invoke("stop_ambient", { channel });
-        setAmbientActive((prev) => { const n = new Set(prev); n.delete(cue.assetId); return n; });
-      } else {
-        await invoke("play_ambient", { channel, filePath: asset.file_path, volume: 1.0 });
-        setAmbientActive((prev) => new Set(prev).add(cue.assetId));
+    try {
+      if (cue.type === "sfx") {
+        await playOneShot(asset.file_path);
+        setTriggered((prev) => new Set(prev).add(cue.assetId));
+      } else if (cue.type === "ambient") {
+        const isNowActive = await toggleLoop(channels.scriptAmbient(cue.assetId), asset.file_path);
+        setAmbientActive((prev) => {
+          const n = new Set(prev);
+          if (isNowActive) n.add(cue.assetId);
+          else n.delete(cue.assetId);
+          return n;
+        });
+        if (isNowActive) setTriggered((prev) => new Set(prev).add(cue.assetId));
+      } else if (cue.type === "project") {
+        await invoke("project_scene", {
+          scene: { file_path: asset.file_path, asset_type: asset.asset_type, title: cue.label },
+        });
+        setCurrentProject(cue.assetId);
         setTriggered((prev) => new Set(prev).add(cue.assetId));
       }
-    } else if (cue.type === "project") {
-      await invoke("project_scene", {
-        scene: { file_path: asset.file_path, asset_type: asset.asset_type, title: cue.label },
-      });
-      setCurrentProject(cue.assetId);
-      setTriggered((prev) => new Set(prev).add(cue.assetId));
+    } catch (e) {
+      console.error("[GuionEditor] cue failed", cue, e);
+      toast.error(
+        cue.type === "project"
+          ? "No se pudo proyectar — ¿abriste la pantalla?"
+          : "No se pudo reproducir el audio"
+      );
     }
   };
 
@@ -402,7 +508,12 @@ function LiveMode({ content, assets }: Omit<LiveProps, "sessionId">) {
       <QuickSoundboard
         assets={audioAssets}
         onPlay={async (asset) => {
-          await invoke("play_sfx", { filePath: asset.file_path, volume: 1.0 });
+          try {
+            await playOneShot(asset.file_path);
+          } catch (e) {
+            console.error("[QuickSoundboard] playOneShot failed", e);
+            toast.error("No se pudo reproducir el audio");
+          }
         }}
       />
     </div>
@@ -497,25 +608,36 @@ function QuickSoundboard({ assets, onPlay }: QuickSoundboardProps) {
   const [ambients, setAmbients] = useState<Set<string>>(new Set());
 
   const handleClick = async (asset: Asset) => {
-    const channel = `quick-${asset.id}`;
     if (ambients.has(asset.id)) {
-      await invoke("stop_ambient", { channel });
-      setAmbients((prev) => { const n = new Set(prev); n.delete(asset.id); return n; });
+      try {
+        const isNowActive = await toggleLoop(channels.quickAmbient(asset.id), asset.file_path);
+        setAmbients((prev) => {
+          const n = new Set(prev);
+          if (isNowActive) n.add(asset.id);
+          else n.delete(asset.id);
+          return n;
+        });
+      } catch (e) {
+        console.error("[QuickSoundboard] toggleLoop failed", e);
+      }
     } else {
-      // Try as SFX first; if it's meant to loop, user can right-click (future enhancement)
       onPlay(asset);
     }
   };
 
   const handleContextMenu = async (e: React.MouseEvent, asset: Asset) => {
     e.preventDefault();
-    const channel = `quick-${asset.id}`;
-    if (ambients.has(asset.id)) {
-      await invoke("stop_ambient", { channel });
-      setAmbients((prev) => { const n = new Set(prev); n.delete(asset.id); return n; });
-    } else {
-      await invoke("play_ambient", { channel, filePath: asset.file_path, volume: 1.0 });
-      setAmbients((prev) => new Set(prev).add(asset.id));
+    try {
+      const isNowActive = await toggleLoop(channels.quickAmbient(asset.id), asset.file_path);
+      setAmbients((prev) => {
+        const n = new Set(prev);
+        if (isNowActive) n.add(asset.id);
+        else n.delete(asset.id);
+        return n;
+      });
+    } catch (err) {
+      console.error("[QuickSoundboard] toggleLoop failed", err);
+      toast.error("No se pudo iniciar el loop");
     }
   };
 

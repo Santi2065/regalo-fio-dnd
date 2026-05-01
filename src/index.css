@@ -1,8 +1,107 @@
 @import "tailwindcss";
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Design tokens — vibe pergamino cálido
+   - parchment / vellum / gold / copper son las nuevas paletas semánticas
+   - Las paletas `stone` y `amber` están sobrescritas para que los componentes
+     viejos adopten el nuevo look automáticamente sin reescribir Tailwind.
+   ────────────────────────────────────────────────────────────────────────── */
 @theme {
-  --color-stone-950: #0c0a09;
+  /* Pergamino oscuro (backgrounds) */
+  --color-parchment-50:  #f8eed4;
+  --color-parchment-100: #ecdcb0;
+  --color-parchment-200: #d6bf85;
+  --color-parchment-300: #b8a274;
+  --color-parchment-400: #998560;
+  --color-parchment-500: #6b5a3e;
+  --color-parchment-600: #4a3d27;
+  --color-parchment-700: #322818;
+  --color-parchment-800: #221a10;
+  --color-parchment-900: #1a130b;
+  --color-parchment-950: #0e0a06;
+
+  /* Vellum (text/foreground) */
+  --color-vellum-50:  #f8f1de;
+  --color-vellum-100: #ebdfba;
+  --color-vellum-200: #d6c391;
+  --color-vellum-300: #b8a274;
+  --color-vellum-400: #998560;
+  --color-vellum-500: #6b5a3e;
+
+  /* Gold candil (acento principal) */
+  --color-gold-50:  #fdf3d8;
+  --color-gold-100: #f9e3a8;
+  --color-gold-200: #f3d076;
+  --color-gold-300: #ecbb47;
+  --color-gold-400: #dfa530;
+  --color-gold-500: #c98e25;
+  --color-gold-600: #a26a18;
+  --color-gold-700: #7c4f0e;
+  --color-gold-800: #5b3908;
+  --color-gold-900: #3d2705;
+
+  /* Copper (acento secundario) */
+  --color-copper-300: #ee9b6f;
+  --color-copper-400: #e07e4e;
+  --color-copper-500: #c46535;
+  --color-copper-600: #9c4d23;
+  --color-copper-700: #743716;
+  --color-copper-800: #4f230d;
+
+  /* Severidad */
+  --color-success-300: #9ed09b;
+  --color-success-500: #6ba26a;
+  --color-success-700: #3d6a3c;
+  --color-success-900: #1f3a1f;
+
+  --color-danger-300: #e08383;
+  --color-danger-500: #b54848;
+  --color-danger-700: #7a2c2c;
+  --color-danger-900: #3f1414;
+
+  --color-warning-300: #ecca7a;
+  --color-warning-500: #c89a3f;
+  --color-warning-700: #8a6620;
+
+  --color-info-300: #88a4c5;
+  --color-info-500: #527aa3;
+  --color-info-700: #2f4868;
+
+  /* ────────────────────────────────────────────────────────────────────────
+     Override stone (frío) → parchment (cálido)
+     Componentes viejos que usan stone-* recogen automáticamente la paleta nueva.
+     ──────────────────────────────────────────────────────────────────────── */
+  --color-stone-50:  #f8f1de;
+  --color-stone-100: #ebdfba;
+  --color-stone-200: #d6c391;
+  --color-stone-300: #b8a274;
+  --color-stone-400: #998560;
+  --color-stone-500: #6b5a3e;
+  --color-stone-600: #4a3d27;
+  --color-stone-700: #322818;
+  --color-stone-800: #221a10;
+  --color-stone-900: #15100a;
+  --color-stone-950: #0a0703;
+
+  /* Override amber → gold candil (más cálido y dorado) */
+  --color-amber-50:  #fdf3d8;
+  --color-amber-100: #fbe8b9;
+  --color-amber-200: #f5d486;
+  --color-amber-300: #ecbf57;
+  --color-amber-400: #dfa83a;
+  --color-amber-500: #c98e25;
+  --color-amber-600: #a26a18;
+  --color-amber-700: #7c4f0e;
+  --color-amber-800: #5b3908;
+  --color-amber-900: #3d2705;
+  --color-amber-950: #1f1302;
+
+  /* Tipografía */
   --font-family-display: "Cinzel", "Georgia", serif;
+  --font-family-body: "Inter", system-ui, -apple-system, sans-serif;
+  --font-family-mono: "JetBrains Mono", "Consolas", "Courier New", monospace;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Consolas", "Courier New", monospace;
 }
 
 * {
@@ -18,30 +117,136 @@ body,
 }
 
 body {
-  background-color: #1c1917;
-  color: #e7e5e4;
-  font-family: system-ui, -apple-system, sans-serif;
+  background-color: #0e0a06;
+  color: #f8f1de;
+  font-family: var(--font-family-body);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar */
+/* Display headings */
+.font-display {
+  font-family: var(--font-family-display);
+  letter-spacing: 0.01em;
+}
+
+.font-mono {
+  font-family: var(--font-family-mono);
+}
+
+/* Scrollbar — más fino y cálido */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #292524;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #57534e;
-  border-radius: 3px;
+  background: #322818;
+  border-radius: 4px;
+  border: 1px solid #1a130b;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #78716c;
+  background: #4a3d27;
 }
 
 /* Drag over highlight */
 .drag-over {
-  border-color: #b45309 !important;
-  background-color: rgba(180, 83, 9, 0.1) !important;
+  border-color: var(--color-gold-500) !important;
+  background-color: rgba(201, 142, 37, 0.12) !important;
+}
+
+/* Focus ring uniforme — gold */
+:focus-visible {
+  outline: 2px solid var(--color-gold-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Selección de texto */
+::selection {
+  background-color: rgba(201, 142, 37, 0.35);
+  color: var(--color-vellum-50);
+}
+
+/* Toast slide-in */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.animate-toast-in {
+  animation: toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Tooltip fade-in */
+@keyframes tooltip-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-tooltip-in {
+  animation: tooltip-in 120ms ease-out;
+}
+
+/* Modal backdrop */
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.animate-backdrop-in {
+  animation: backdrop-in 140ms ease-out;
+}
+
+.animate-modal-in {
+  animation: modal-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Shimmer for loading skeletons */
+@keyframes shimmer {
+  0%   { background-position: -480px 0; }
+  100% { background-position: 480px 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-parchment-800) 0%,
+    var(--color-parchment-700) 50%,
+    var(--color-parchment-800) 100%
+  );
+  background-size: 480px 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+
+/* Sombra cálida tipo "vela en la mesa" */
+.shadow-candlelight {
+  box-shadow:
+    0 8px 32px -12px rgba(201, 142, 37, 0.12),
+    0 4px 12px -4px rgba(0, 0, 0, 0.5);
+}
+
+/* Glow gold para elementos activos */
+.glow-gold {
+  box-shadow: 0 0 0 1px var(--color-gold-600), 0 0 20px -8px rgba(201, 142, 37, 0.45);
+}
+
+/* Drop zone activa (durante drag global) */
+.dropzone-active {
+  border: 2px dashed var(--color-gold-500);
+  background-color: rgba(201, 142, 37, 0.08);
 }

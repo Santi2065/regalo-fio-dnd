@@ -33,6 +33,16 @@ export const useSpotifyStore = create<SpotifyStore>((set, get) => ({
       const t = await invoke<SpotifyTrack | null>("spotify_current_track", {
         clientId: SPOTIFY_CLIENT_ID,
       });
+      const prev = get().track;
+      // Skip the store update when nothing visible has changed. Progress drifts
+      // every tick, so a tolerance lets paused/idle ticks short-circuit.
+      if (
+        prev?.id === t?.id &&
+        prev?.is_playing === t?.is_playing &&
+        Math.abs((prev?.progress_ms ?? 0) - (t?.progress_ms ?? 0)) < 1500
+      ) {
+        return;
+      }
       set({ track: t });
     } catch {
       // ignore (e.g. Spotify not open)

@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { useDebouncedEffect } from "../lib/useDebouncedEffect";
 
 interface Combatant {
   id: string;
@@ -11,7 +13,27 @@ interface Combatant {
   notes: string;
 }
 
-const CONDITIONS = ["Prone", "Stunned", "Poisoned", "Blinded", "Frightened", "Restrained", "Incapacitated", "Paralyzed", "Charmed", "Exhaustion"];
+interface RawCombatant {
+  id: string;
+  session_id: string;
+  name: string;
+  initiative: number;
+  hp: number;
+  max_hp: number;
+  type: string;
+  conditions: string[];
+  notes: string;
+  sort_order: number;
+}
+
+interface RawCombatState {
+  session_id: string;
+  current_turn: number;
+  round: number;
+  custom_conditions: string[];
+}
+
+const STANDARD_CONDITIONS = ["Prone", "Stunned", "Poisoned", "Blinded", "Frightened", "Restrained", "Incapacitated", "Paralyzed", "Charmed", "Exhaustion"];
 
 const TYPE_STYLES: Record<Combatant["type"], string> = {
   player:  "border-l-4 border-l-emerald-500",
@@ -27,13 +49,21 @@ const TYPE_BADGE: Record<Combatant["type"], string> = {
 let idCounter = 0;
 const uid = () => `c-${++idCounter}-${Date.now()}`;
 
-export default function InitiativeTracker() {
+const SAVE_DEBOUNCE_MS = 400;
+
+interface Props {
+  sessionId: string;
+}
+
+export default function InitiativeTracker({ sessionId }: Props) {
   const [combatants, setCombatants] = useState<Combatant[]>([]);
   const [currentTurn, setCurrentTurn] = useState(0);
   const [round, setRound] = useState(1);
+  const [customConditions, setCustomConditions] = useState<string[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [hpEdit, setHpEdit] = useState<{ id: string; delta: string } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   // Add form state
   const [form, setForm] = useState({
@@ -44,7 +74,89 @@ export default function InitiativeTracker() {
     count: "1",
   });
 
-  const sorted = [...combatants].sort((a, b) => b.initiative - a.initiative);
+  const allConditions = [...STANDARD_CONDITIONS, ...customConditions];
+
+  // ── Load on mount / session change ──────────────────────────────────────
+  useEffect(() => {
+    if (!sessionId) return;
+    setLoaded(false);
+    let cancelled = false;
+    (async () => {
+      try {
+        const [rawCombatants, combatState] = await Promise.all([
+          invoke<RawCombatant[]>("get_combatants", { sessionId }),
+          invoke<RawCombatState>("get_combat_state", { sessionId }),
+        ]);
+        if (cancelled) return;
+        setCombatants(
+          rawCombatants.map((c) => ({
+            id: c.id,
+            name: c.name,
+            initiative: c.initiative,
+            hp: c.hp,
+            maxHp: c.max_hp,
+            type: (c.type === "player" || c.type === "enemy" || c.type === "neutral"
+              ? c.type
+              : "enemy") as Combatant["type"],
+            conditions: c.conditions ?? [],
+            notes: c.notes ?? "",
+          }))
+        );
+        setCurrentTurn(combatState.current_turn);
+        setRound(combatState.round);
+        setCustomConditions(combatState.custom_conditions ?? []);
+      } catch (e) {
+        console.error("[InitiativeTracker] load failed", e);
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  // ── Debounced save: combatants ──────────────────────────────────────────
+  useDebouncedEffect(
+    () => {
+      invoke("set_combatants", {
+        sessionId,
+        combatants: combatants.map((c) => ({
+          id: c.id,
+          name: c.name,
+          initiative: c.initiative,
+          hp: c.hp,
+          max_hp: c.maxHp,
+          type: c.type,
+          conditions: c.conditions,
+          notes: c.notes,
+        })),
+      }).catch((e) => console.error("[InitiativeTracker] save combatants failed", e));
+    },
+    [combatants, sessionId],
+    SAVE_DEBOUNCE_MS,
+    loaded && Boolean(sessionId)
+  );
+
+  // ── Debounced save: combat state ─────────────────────────────────────────
+  useDebouncedEffect(
+    () => {
+      invoke("set_combat_state", {
+        sessionId,
+        currentTurn,
+        round,
+        customConditions,
+      }).catch((e) => console.error("[InitiativeTracker] save state failed", e));
+    },
+    [currentTurn, round, customConditions, sessionId],
+    SAVE_DEBOUNCE_MS,
+    loaded && Boolean(sessionId)
+  );
+
+  const sorted = useMemo(
+    () => [...combatants].sort((a, b) => b.initiative - a.initiative),
+    [combatants]
+  );
   const activeCombatant = sorted[currentTurn] ?? null;
 
   const addCombatants = () => {
@@ -57,7 +169,7 @@ export default function InitiativeTracker() {
     const news: Combatant[] = Array.from({ length: count }, (_, i) => ({
       id: uid(),
       name: count > 1 ? `${name} ${i + 1}` : name,
-      initiative: count > 1 ? init + Math.floor(Math.random() * 0) : init,
+      initiative: count > 1 ? init - 2 + Math.floor(Math.random() * 5) : init,
       hp,
       maxHp: hp,
       type: form.type,
@@ -382,21 +494,44 @@ export default function InitiativeTracker() {
                   {/* Expanded: conditions + notes */}
                   {isExpanded && (
                     <div className="px-12 pb-3 space-y-2">
-                      <div className="flex flex-wrap gap-1">
-                        {CONDITIONS.map((cond) => (
-                          <button
-                            key={cond}
-                            onClick={() => toggleCondition(c.id, cond)}
-                            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                              c.conditions.includes(cond)
-                                ? "border-purple-600 bg-purple-900/50 text-purple-300"
-                                : "border-stone-700 text-stone-500 hover:border-stone-500 hover:text-stone-300"
-                            }`}
-                          >
-                            {cond}
-                          </button>
-                        ))}
+                      <div className="flex flex-wrap gap-1 items-center">
+                        {allConditions.map((cond) => {
+                          const isCustom = customConditions.includes(cond);
+                          return (
+                            <button
+                              key={cond}
+                              onClick={() => toggleCondition(c.id, cond)}
+                              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                                c.conditions.includes(cond)
+                                  ? "border-purple-600 bg-purple-900/50 text-purple-300"
+                                  : isCustom
+                                  ? "border-copper-600 bg-copper-700/20 text-copper-400 hover:bg-copper-700/30"
+                                  : "border-stone-700 text-stone-500 hover:border-stone-500 hover:text-stone-300"
+                              }`}
+                            >
+                              {cond}
+                            </button>
+                          );
+                        })}
+                        <button
+                          onClick={() => {
+                            const next = window.prompt("Nueva condición personalizada:");
+                            const trimmed = next?.trim();
+                            if (!trimmed) return;
+                            if (allConditions.includes(trimmed)) return;
+                            setCustomConditions((prev) => [...prev, trimmed]);
+                          }}
+                          className="text-xs px-2 py-0.5 rounded-full border border-dashed border-parchment-600 text-vellum-400 hover:border-gold-500 hover:text-gold-400 transition-colors"
+                          title="Agregar una condición que no está en la lista (ej: 'Bendecido', 'En llamas')"
+                        >
+                          + condición
+                        </button>
                       </div>
+                      {customConditions.length > 0 && (
+                        <p className="text-[10px] text-vellum-400">
+                          Tip: las condiciones personalizadas (en cobre) están guardadas para esta sesión.
+                        </p>
+                      )}
                       <input
                         value={c.notes}
                         onChange={(e) =>

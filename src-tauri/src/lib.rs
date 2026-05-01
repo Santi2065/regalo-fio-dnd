@@ -1,9 +1,11 @@
 mod assets;
 mod audio;
+mod combatants;
 mod db;
 mod display;
 mod guion;
 mod notes;
+mod sample;
 mod session;
 mod spotify;
 
@@ -41,6 +43,14 @@ pub fn run() {
             notes::create_note,
             notes::update_note,
             notes::delete_note,
+            // Combatants / combat state
+            combatants::get_combatants,
+            combatants::set_combatants,
+            combatants::clear_combatants,
+            combatants::get_combat_state,
+            combatants::set_combat_state,
+            // Sample session
+            sample::create_sample_session,
             // Guión
             guion::get_guion,
             guion::save_guion,

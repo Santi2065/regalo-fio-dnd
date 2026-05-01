@@ -5,6 +5,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Asset, AssetType } from "../lib/types";
 import AssetCard from "./AssetCard";
 import AssetPreview from "./AssetPreview";
+import { Skeleton } from "./ui";
 
 interface Props {
   sessionId: string; // the current session; null passed to backend = global library
@@ -202,7 +203,17 @@ export default function AssetBrowser({ sessionId }: Props) {
           )}
 
           {loading ? (
-            <div className="text-center text-stone-500 py-16">Cargando assets...</div>
+            <div
+              className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3"
+              aria-label="Cargando assets"
+            >
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="space-y-2">
+                  <Skeleton className="aspect-square w-full" />
+                  <Skeleton className="h-3 w-3/4" />
+                </div>
+              ))}
+            </div>
           ) : filteredAssets.length === 0 ? (
             <div className="text-center py-16">
               <div className="text-5xl mb-3">
