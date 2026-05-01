@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
+use tauri::AppHandle;
 use tokio::sync::{broadcast, oneshot};
 
 mod server;
@@ -121,6 +122,25 @@ pub enum HandoutContent {
     Text { title: Option<String>, body: String },
 }
 
+/// Eventos que el server le empuja al DM (a través del frontend Tauri).
+/// El DM frontend escucha estos via `listen("companion-event", ...)`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum DmEvent {
+    #[serde(rename = "dice_roll")]
+    DiceRoll {
+        from_token: String,
+        from_name: String,
+        expression: String,
+        total: i64,
+        breakdown: String,
+    },
+    #[serde(rename = "player_connected")]
+    PlayerConnected { token: String, name: String },
+    #[serde(rename = "player_disconnected")]
+    PlayerDisconnected { token: String, name: String },
+}
+
 #[derive(Debug, Clone)]
 pub struct ServerConnection {
     pub character: Character,
@@ -167,6 +187,7 @@ pub async fn companion_start(
     pin: Option<String>,
     campaign_name: Option<String>,
     characters: Option<Vec<Character>>,
+    app: AppHandle,
     state: tauri::State<'_, StdMutex<CompanionState>>,
 ) -> Result<CompanionInfo, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
@@ -213,9 +234,10 @@ pub async fn companion_start(
     let (tx, rx) = oneshot::channel::<()>();
     let public_state = guard.public_state.clone();
     let port = COMPANION_PORT;
+    let app_handle = app.clone();
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = server::run(port, public_state, rx).await {
+        if let Err(e) = server::run(port, public_state, app_handle, rx).await {
             eprintln!("[companion] server error: {e}");
         }
     });

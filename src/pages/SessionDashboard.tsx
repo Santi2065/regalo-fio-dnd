@@ -118,6 +118,30 @@ export default function SessionDashboard() {
       .catch((e) => console.error("[Dashboard] companion status failed", e));
   }, []);
 
+  // Escuchar eventos del companion (dice rolls de los players, etc).
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<{
+        type: string;
+        from_name?: string;
+        expression?: string;
+        total?: number;
+        breakdown?: string;
+      }>("companion-event", (event) => {
+        const p = event.payload;
+        if (p.type === "dice_roll" && p.from_name) {
+          toast.info(`🎲 ${p.from_name}: ${p.expression} = ${p.total}`, 5000);
+        }
+      }).then((un) => {
+        unlistenFn = un;
+      });
+    });
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
   useEffect(() => {
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     if (!authenticated) return;

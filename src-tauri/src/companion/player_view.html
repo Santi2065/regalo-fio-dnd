@@ -209,6 +209,74 @@
     border-bottom-color: var(--danger);
   }
 
+  .roll-bar {
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    padding: 12px;
+    display: flex;
+    gap: 8px;
+    position: sticky;
+    bottom: 0;
+  }
+  .roll-bar input {
+    flex: 1;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+  }
+  .roll-bar input:focus { outline: 2px solid var(--gold-soft); outline-offset: 1px; border-color: var(--gold-soft); }
+  .roll-bar button {
+    background: var(--gold-soft);
+    color: var(--bg-base);
+    border: none;
+    padding: 12px 18px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .roll-bar button:disabled { opacity: 0.4; }
+  .roll-result {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--success);
+    padding: 12px 16px;
+    margin: 0 16px 8px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    animation: slide-in 200ms ease-out;
+  }
+  .roll-result .meta { font-size: 11px; color: var(--text-muted); font-family: ui-monospace, monospace; }
+  .roll-result .total { font-size: 28px; font-weight: 700; color: var(--gold); font-family: ui-monospace, monospace; }
+  .roll-presets {
+    display: flex;
+    gap: 6px;
+    padding: 0 12px 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .roll-presets button {
+    flex-shrink: 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-soft);
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-family: ui-monospace, monospace;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .roll-presets button:active { background: var(--border); }
+
   .pulse-dot {
     width: 8px; height: 8px; border-radius: 50%;
     background: var(--success);
@@ -234,7 +302,12 @@
     error: null,
     handouts: [],
     wsStatus: "disconnected", // "connected" | "disconnected" | "reconnecting"
+    rollExpr: "",
+    lastRoll: null, // { total, breakdown, expression, ts }
+    rolling: false,
   };
+
+  const ROLL_PRESETS = ["1d20", "1d20 adv", "1d20 dis", "1d4", "1d6", "1d8", "1d10", "1d12", "1d100"];
 
   let ws = null;
   let wsReconnectTimer = null;
@@ -377,9 +450,58 @@
       wrapper.appendChild(list);
     }
 
+    // Last roll result (above the input).
+    if (state.lastRoll) {
+      const r = document.createElement("div");
+      r.className = "roll-result";
+      r.innerHTML = `
+        <div>
+          <div class="meta">${escapeHtml(state.lastRoll.expression)}</div>
+          <div class="meta" style="margin-top:2px">${escapeHtml(state.lastRoll.breakdown)}</div>
+        </div>
+        <div class="total">${state.lastRoll.total}</div>
+      `;
+      wrapper.appendChild(r);
+    }
+
+    // Presets.
+    const presets = document.createElement("div");
+    presets.className = "roll-presets";
+    ROLL_PRESETS.forEach((p) => {
+      const b = document.createElement("button");
+      b.textContent = p;
+      b.addEventListener("click", () => {
+        state.rollExpr = p;
+        rollAndSend();
+      });
+      presets.appendChild(b);
+    });
+    wrapper.appendChild(presets);
+
+    // Roll bar.
+    const rollBar = document.createElement("div");
+    rollBar.className = "roll-bar";
+    rollBar.innerHTML = `
+      <input id="roll-input" type="text" placeholder="1d20+5" value="${escapeHtml(state.rollExpr)}" inputmode="text" autocomplete="off" />
+      <button id="roll-btn"${state.rolling ? " disabled" : ""}>🎲 Tirar</button>
+    `;
+    wrapper.appendChild(rollBar);
+
     setTimeout(() => {
       const b = document.getElementById("disconnect-btn");
       if (b) b.addEventListener("click", () => disconnect());
+      const inp = document.getElementById("roll-input");
+      const rb = document.getElementById("roll-btn");
+      if (inp) {
+        inp.addEventListener("input", (e) => { state.rollExpr = e.target.value; });
+        inp.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            rollAndSend();
+          }
+        });
+      }
+      if (rb) rb.addEventListener("click", () => rollAndSend());
     }, 0);
 
     return wrapper;
@@ -518,6 +640,37 @@
       state.error = e.message === "pin_invalid" ? "PIN incorrecto" :
                     e.message === "character_taken" ? "Ese personaje ya está conectado" :
                     "No se pudo conectar (" + e.message + ")";
+      render();
+    }
+  }
+
+  async function rollAndSend() {
+    const expr = state.rollExpr.trim();
+    if (!expr || state.rolling) return;
+    const token = localStorage.getItem(STORAGE_KEY);
+    if (!token) return;
+    state.rolling = true;
+    render();
+    try {
+      const r = await fetch("/api/roll", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "Authorization": "Bearer " + token,
+        },
+        body: JSON.stringify({ expression: expr }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail || body.error || "rechazado");
+      }
+      const data = await r.json();
+      state.lastRoll = { ...data, ts: Date.now() };
+      try { navigator.vibrate?.(80); } catch {}
+    } catch (e) {
+      state.error = "Tirada inválida: " + e.message;
+    } finally {
+      state.rolling = false;
       render();
     }
   }
