@@ -8,7 +8,6 @@ import SoundboardPanel from "../components/SoundboardPanel";
 import DisplayPanel from "../components/DisplayPanel";
 import GuionEditor from "../components/GuionEditor";
 import InitiativeTracker from "../components/InitiativeTracker";
-import SpotifyPanel from "../components/SpotifyPanel";
 import MiniSpotifyPlayer from "../components/MiniSpotifyPlayer";
 import CharacterSheets from "../components/CharacterSheets";
 import HelpModal from "../components/HelpModal";
@@ -18,7 +17,7 @@ import { toast } from "../lib/toast";
 import { IconButton, Tooltip } from "../components/ui";
 
 type MainSection = "guion" | "assets" | "personajes";
-type ToolTab = "soundboard" | "display" | "initiative" | "notes" | "spotify";
+type ToolTab = "soundboard" | "display" | "initiative" | "notes";
 type Mode = "prep" | "live";
 type PanelSize = "sm" | "md" | "lg";
 
@@ -55,7 +54,6 @@ const TOOL_TABS: { key: ToolTab; icon: string; label: string; shortcut: string }
   { key: "display", icon: "🖥", label: "Proyección", shortcut: "Ctrl+5" },
   { key: "initiative", icon: "⚔", label: "Iniciativa", shortcut: "Ctrl+6" },
   { key: "notes", icon: "📝", label: "Notas", shortcut: "Ctrl+7" },
-  { key: "spotify", icon: "🎵", label: "Spotify", shortcut: "Ctrl+8" },
 ];
 
 export default function SessionDashboard() {
@@ -112,8 +110,11 @@ export default function SessionDashboard() {
   useEffect(() => {
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     if (!authenticated) return;
-    poll();
-    pollIntervalRef.current = setInterval(poll, 5000);
+    const tick = () => {
+      if (!document.hidden) poll();
+    };
+    tick();
+    pollIntervalRef.current = setInterval(tick, 5000);
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
@@ -147,7 +148,7 @@ export default function SessionDashboard() {
             if (mode !== "live" || num === 1) setMainSection(MAIN_NAV[num - 1].key);
             return;
           }
-          if (num >= 4 && num <= 8) {
+          if (num >= 4 && num <= 7) {
             e.preventDefault();
             setToolTab(TOOL_TABS[num - 4].key);
             if (collapsed) setCollapsed(false);
@@ -423,16 +424,13 @@ export default function SessionDashboard() {
               <div className={toolTab === "notes" ? "h-full" : "hidden"}>
                 <NotesPanel sessionId={id} compact />
               </div>
-              <div className={toolTab === "spotify" ? "h-full" : "hidden"}>
-                <SpotifyPanel compact />
-              </div>
             </div>
           </div>
         </aside>
       </div>
 
-      {/* Mini Spotify player */}
-      {authenticated && <MiniSpotifyPlayer />}
+      {/* Mini Spotify player — always visible, handles its own auth state */}
+      <MiniSpotifyPlayer />
 
       {/* Help modal */}
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />

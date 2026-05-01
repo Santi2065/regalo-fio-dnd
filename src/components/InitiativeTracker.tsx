@@ -505,21 +505,44 @@ export default function InitiativeTracker({ sessionId }: Props) {
                   {/* Expanded: conditions + notes */}
                   {isExpanded && (
                     <div className="px-12 pb-3 space-y-2">
-                      <div className="flex flex-wrap gap-1">
-                        {allConditions.map((cond) => (
-                          <button
-                            key={cond}
-                            onClick={() => toggleCondition(c.id, cond)}
-                            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                              c.conditions.includes(cond)
-                                ? "border-purple-600 bg-purple-900/50 text-purple-300"
-                                : "border-stone-700 text-stone-500 hover:border-stone-500 hover:text-stone-300"
-                            }`}
-                          >
-                            {cond}
-                          </button>
-                        ))}
+                      <div className="flex flex-wrap gap-1 items-center">
+                        {allConditions.map((cond) => {
+                          const isCustom = customConditions.includes(cond);
+                          return (
+                            <button
+                              key={cond}
+                              onClick={() => toggleCondition(c.id, cond)}
+                              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                                c.conditions.includes(cond)
+                                  ? "border-purple-600 bg-purple-900/50 text-purple-300"
+                                  : isCustom
+                                  ? "border-copper-600 bg-copper-700/20 text-copper-400 hover:bg-copper-700/30"
+                                  : "border-stone-700 text-stone-500 hover:border-stone-500 hover:text-stone-300"
+                              }`}
+                            >
+                              {cond}
+                            </button>
+                          );
+                        })}
+                        <button
+                          onClick={() => {
+                            const next = window.prompt("Nueva condición personalizada:");
+                            const trimmed = next?.trim();
+                            if (!trimmed) return;
+                            if (allConditions.includes(trimmed)) return;
+                            setCustomConditions((prev) => [...prev, trimmed]);
+                          }}
+                          className="text-xs px-2 py-0.5 rounded-full border border-dashed border-parchment-600 text-vellum-400 hover:border-gold-500 hover:text-gold-400 transition-colors"
+                          title="Agregar una condición que no está en la lista (ej: 'Bendecido', 'En llamas')"
+                        >
+                          + condición
+                        </button>
                       </div>
+                      {customConditions.length > 0 && (
+                        <p className="text-[10px] text-vellum-400">
+                          Tip: las condiciones personalizadas (en cobre) están guardadas para esta sesión.
+                        </p>
+                      )}
                       <input
                         value={c.notes}
                         onChange={(e) =>

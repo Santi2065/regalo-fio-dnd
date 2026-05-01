@@ -2,6 +2,8 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Asset } from "../lib/types";
+import { toast } from "../lib/toast";
+import { ConfirmDialog } from "./ui";
 
 interface Props {
   asset: Asset;
@@ -25,6 +27,7 @@ export default function AssetPreview({ asset, onClose, onDelete, onUpdate }: Pro
   const [tagInput, setTagInput] = useState("");
   const [tags, setTags] = useState<string[]>(asset.tags);
   const [saving, setSaving] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const fileSrc = convertFileSrc(asset.file_path);
 
@@ -39,6 +42,10 @@ export default function AssetPreview({ asset, onClose, onDelete, onUpdate }: Pro
         assetType: typeChanged ? editType : null,
       });
       onUpdate({ ...asset, name: editName, tags, asset_type: editType });
+      toast.success("Asset actualizado");
+    } catch (e) {
+      console.error("[AssetPreview] save failed", e);
+      toast.error("No se pudo guardar el asset");
     } finally {
       setSaving(false);
     }
@@ -56,14 +63,27 @@ export default function AssetPreview({ asset, onClose, onDelete, onUpdate }: Pro
 
   const isDirty = editName !== asset.name || editType !== asset.asset_type || JSON.stringify(tags) !== JSON.stringify(asset.tags);
 
+  const requestClose = () => {
+    if (isDirty) setConfirmDiscard(true);
+    else onClose();
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-stone-800">
-        <span className="text-sm font-medium text-stone-300">Detalle</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-stone-300">Detalle</span>
+          {isDirty && (
+            <span className="text-[10px] text-warning-300 bg-warning-700/30 px-1.5 py-0.5 rounded font-medium">
+              Sin guardar
+            </span>
+          )}
+        </div>
         <button
-          onClick={onClose}
+          onClick={requestClose}
           className="text-stone-500 hover:text-stone-300 text-lg leading-none"
+          aria-label="Cerrar detalle"
         >
           ×
         </button>
@@ -172,6 +192,20 @@ export default function AssetPreview({ asset, onClose, onDelete, onUpdate }: Pro
           Eliminar asset
         </button>
       </div>
+
+      <ConfirmDialog
+        open={confirmDiscard}
+        title="¿Descartar cambios?"
+        description="Tenés cambios sin guardar en este asset. Si cerrás ahora se pierden."
+        confirmLabel="Descartar"
+        cancelLabel="Seguir editando"
+        danger
+        onCancel={() => setConfirmDiscard(false)}
+        onConfirm={() => {
+          setConfirmDiscard(false);
+          onClose();
+        }}
+      />
     </div>
   );
 }
