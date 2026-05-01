@@ -9,6 +9,7 @@ import {
   stopAllAudio,
   channels,
 } from "../lib/audioController";
+import SoundTriggersSection from "./sound-triggers/SoundTriggersSection";
 
 interface SoundboardSlot {
   id: string;
@@ -236,26 +237,32 @@ export default function SoundboardPanel({ sessionId, compact = false }: Props) {
           </div>
         )}
 
-        {/* Grid */}
-        <div className={`flex-1 overflow-y-auto ${compact ? "p-2" : "p-6"}`}>
-          <div className={`grid gap-2 ${compact ? "grid-cols-3" : "grid-cols-4 gap-3"}`}>
-            {slots.map((slot, i) => (
-              <SoundboardCell
-                key={i}
-                position={i}
-                slot={slot}
-                isPlaying={slot ? playing.has(slot.id) : false}
-                isAmbient={slot ? ambient.has(slot.id) : false}
-                isDragOver={dragOverPos === i}
-                onTrigger={() => slot && handleTrigger(slot)}
-                onRemove={() => slot && handleRemoveSlot(slot, i)}
-                onEdit={() => slot && setEditingSlot({ ...slot })}
-                onDragOver={() => setDragOverPos(i)}
-                onDragLeave={() => setDragOverPos(null)}
-                onDrop={(asset) => handleDrop(i, asset)}
-              />
-            ))}
+        {/* Grid + reglas automáticas */}
+        <div className="flex-1 overflow-y-auto">
+          <div className={compact ? "p-2" : "p-6"}>
+            <div className={`grid gap-2 ${compact ? "grid-cols-3" : "grid-cols-4 gap-3"}`}>
+              {slots.map((slot, i) => (
+                <SoundboardCell
+                  key={i}
+                  position={i}
+                  slot={slot}
+                  isPlaying={slot ? playing.has(slot.id) : false}
+                  isAmbient={slot ? ambient.has(slot.id) : false}
+                  isDragOver={dragOverPos === i}
+                  onTrigger={() => slot && handleTrigger(slot)}
+                  onRemove={() => slot && handleRemoveSlot(slot, i)}
+                  onEdit={() => slot && setEditingSlot({ ...slot })}
+                  onDragOver={() => setDragOverPos(i)}
+                  onDragLeave={() => setDragOverPos(null)}
+                  onDrop={(asset) => handleDrop(i, asset)}
+                />
+              ))}
+            </div>
           </div>
+
+          {/* Sub-sección colapsable solo en modo no-compacto: el inspector
+              compact en Live mode no necesita configurar reglas. */}
+          {!compact && <SoundTriggersSection sessionId={sessionId} />}
         </div>
       </div>
 

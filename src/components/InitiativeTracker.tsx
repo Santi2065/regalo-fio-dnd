@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useDebouncedEffect } from "../lib/useDebouncedEffect";
 import { useStatBlock } from "../lib/statBlockCache";
 import StatBlockPanel from "./initiative/StatBlockPanel";
+import { useLiveStateStore } from "../store/liveStateStore";
 
 interface Combatant {
   id: string;
@@ -160,6 +161,25 @@ export default function InitiativeTracker({ sessionId }: Props) {
     [combatants]
   );
   const activeCombatant = sorted[currentTurn] ?? null;
+
+  // Publicar al live store para que el sound-trigger engine lo vea aunque
+  // el usuario cambie de tab. Mandamos el array ya ordenado por iniciativa
+  // para que el index `active` sea coherente.
+  useEffect(() => {
+    if (!loaded) return;
+    useLiveStateStore.getState().setCombatLive({
+      combatants: sorted.map((c) => ({
+        id: c.id,
+        name: c.name,
+        hp: c.hp,
+        maxHp: c.maxHp,
+        type: c.type,
+        conditions: c.conditions,
+      })),
+      currentTurnIndex: currentTurn,
+      round,
+    });
+  }, [sorted, currentTurn, round, loaded]);
 
   const addCombatants = () => {
     const name = form.name.trim();

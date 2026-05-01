@@ -9,6 +9,7 @@ mod manuals;
 mod notes;
 mod sample;
 mod session;
+mod sound_triggers;
 mod spotify;
 
 use std::sync::Mutex;
@@ -102,6 +103,9 @@ pub fn run() {
             companion::companion_set_characters,
             companion::companion_kick_player,
             companion::companion_send_handout,
+            // Sound triggers (live mechanics)
+            sound_triggers::get_sound_triggers,
+            sound_triggers::set_sound_triggers,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
