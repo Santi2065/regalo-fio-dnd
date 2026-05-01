@@ -48,3 +48,14 @@ export const companionSetCharacters = (characters: Character[]) =>
 
 export const companionKickPlayer = (token: string) =>
   invoke<void>("companion_kick_player", { token });
+
+export const companionSendHandout = (
+  toToken: string | null,
+  title: string | null,
+  body: string
+) =>
+  invoke<void>("companion_send_handout", {
+    toToken,
+    title,
+    body,
+  });

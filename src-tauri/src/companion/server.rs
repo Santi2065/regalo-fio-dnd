@@ -2,7 +2,10 @@
 //! desde la red local (celu de los players).
 
 use axum::{
-    extract::{Json as AxumJson, State as AxumState},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Json as AxumJson, Query, State as AxumState,
+    },
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Json, Response},
     routing::{get, post},
@@ -16,7 +19,7 @@ use std::time::Instant;
 use tokio::sync::oneshot;
 use tower_http::cors::{Any, CorsLayer};
 
-use super::{Character, PublicState, ServerConnection};
+use super::{Character, PlayerEvent, PublicState, ServerConnection};
 
 // Embedded mobile-first player view. Servida en GET /. Para B.2 es un
 // HTML+JS standalone; en B.3+ podríamos migrar a un build separado de
@@ -200,6 +203,88 @@ async fn disconnect_handler(
     Json(json!({ "ok": true })).into_response()
 }
 
+#[derive(Deserialize)]
+struct WsQuery {
+    token: String,
+}
+
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    Query(q): Query<WsQuery>,
+    AxumState(state): AxumState<Arc<Mutex<PublicState>>>,
+) -> Response {
+    // Validar token contra connections antes de upgrade.
+    let valid = match state.lock() {
+        Ok(p) => p.connections.contains_key(&q.token),
+        Err(_) => false,
+    };
+    if !valid {
+        return (StatusCode::UNAUTHORIZED, "invalid_token").into_response();
+    }
+    let token = q.token.clone();
+    let state_clone = state.clone();
+    ws.on_upgrade(move |socket| handle_socket(socket, token, state_clone))
+}
+
+async fn handle_socket(mut socket: WebSocket, token: String, state: Arc<Mutex<PublicState>>) {
+    // Subscribe al broadcast de eventos.
+    let mut rx = match state.lock() {
+        Ok(p) => p.events.subscribe(),
+        Err(_) => return,
+    };
+
+    // Send initial hello para que el player sepa que está conectado.
+    let _ = socket
+        .send(Message::Text(
+            serde_json::to_string(&serde_json::json!({
+                "type": "hello",
+                "ts": chrono::Utc::now().to_rfc3339(),
+            }))
+            .unwrap_or_default(),
+        ))
+        .await;
+
+    loop {
+        tokio::select! {
+            // Eventos del DM al player.
+            evt = rx.recv() => {
+                let Ok(evt) = evt else { break };
+                let should_deliver = match &evt {
+                    PlayerEvent::Handout { to_token, .. } => {
+                        match to_token {
+                            None => true, // broadcast
+                            Some(t) => t == &token,
+                        }
+                    }
+                    PlayerEvent::Kicked { to_token } => to_token == &token,
+                };
+                if !should_deliver {
+                    continue;
+                }
+                let payload = match serde_json::to_string(&evt) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                if socket.send(Message::Text(payload)).await.is_err() {
+                    break;
+                }
+                if matches!(evt, PlayerEvent::Kicked { .. }) {
+                    break;
+                }
+            }
+            // Mensajes del cliente — por ahora ignoramos (B.3.b va a recibir
+            // dice rolls, etc).
+            msg = socket.recv() => {
+                match msg {
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Err(_)) => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
 async fn ping_handler() -> impl IntoResponse {
     Json(PingResponse {
         ok: true,
@@ -230,6 +315,7 @@ pub async fn run(
         .route("/api/me", get(me_handler))
         .route("/api/disconnect", post(disconnect_handler))
         .route("/api/ping", get(ping_handler))
+        .route("/ws", get(ws_handler))
         .fallback(not_found)
         .with_state(public_state)
         .layer(cors);

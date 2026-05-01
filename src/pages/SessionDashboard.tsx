@@ -15,6 +15,7 @@ import DiceOverlay from "../components/DiceOverlay";
 import GeneratorOverlay from "../components/GeneratorOverlay";
 import ManualSearch from "../components/ManualSearch";
 import CompanionDialog from "../components/CompanionDialog";
+import SendHandoutDialog from "../components/SendHandoutDialog";
 import type { CompanionStatus } from "../lib/companion";
 import { companionStatus as fetchCompanionStatus } from "../lib/companion";
 import type { Session } from "../lib/types";
@@ -80,6 +81,7 @@ export default function SessionDashboard() {
   const [manualSearchOpen, setManualSearchOpen] = useState(false);
   const [companionOpen, setCompanionOpen] = useState(false);
   const [companion, setCompanion] = useState<CompanionStatus | null>(null);
+  const [handoutOpen, setHandoutOpen] = useState(false);
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -151,6 +153,11 @@ export default function SessionDashboard() {
           setManualSearchOpen((v) => !v);
           return;
         }
+        if (key === "m" && companion?.running) {
+          e.preventDefault();
+          setHandoutOpen((v) => !v);
+          return;
+        }
       }
 
       if (
@@ -189,7 +196,7 @@ export default function SessionDashboard() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [mode, collapsed]);
+  }, [mode, collapsed, companion?.running]);
 
   if (!id) return null;
 
@@ -509,6 +516,7 @@ export default function SessionDashboard() {
         onClose={() => setCompanionOpen(false)}
         onStatusChange={setCompanion}
       />
+      <SendHandoutDialog open={handoutOpen} onClose={() => setHandoutOpen(false)} />
     </div>
   );
 }

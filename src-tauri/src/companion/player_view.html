@@ -170,6 +170,45 @@
   }
   .placeholder .icon { font-size: 56px; opacity: 0.4; }
 
+  .handouts {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .handout {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--gold-soft);
+    border-radius: 10px;
+    padding: 14px 16px;
+    animation: slide-in 250ms ease-out;
+  }
+  .handout--new { border-color: var(--gold); border-left-color: var(--gold); }
+  .handout-meta { color: var(--text-muted); font-size: 11px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+  .handout-title { font-weight: 600; color: var(--text); margin-bottom: 4px; font-size: 15px; }
+  .handout-body { color: var(--text-soft); font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  .ws-banner {
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    padding: 8px 16px;
+    text-align: center;
+    font-size: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ws-banner--error {
+    background: rgba(181, 72, 72, 0.1);
+    color: var(--danger);
+    border-bottom-color: var(--danger);
+  }
+
   .pulse-dot {
     width: 8px; height: 8px; border-radius: 50%;
     background: var(--success);
@@ -193,7 +232,12 @@
     pin: "",
     selectedCharId: null,
     error: null,
+    handouts: [],
+    wsStatus: "disconnected", // "connected" | "disconnected" | "reconnecting"
   };
+
+  let ws = null;
+  let wsReconnectTimer = null;
 
   function render() {
     const root = document.getElementById("app");
@@ -286,26 +330,52 @@
 
     const header = document.createElement("div");
     header.className = "session-header";
+    const wsState = state.wsStatus === "connected"
+      ? '<span class="pulse-dot" style="display:inline-block;vertical-align:middle;margin-right:4px"></span> Conectado'
+      : state.wsStatus === "reconnecting"
+      ? '<span style="color:var(--gold)">Reconectando...</span>'
+      : '<span style="color:var(--danger)">Sin conexión</span>';
     header.innerHTML = `
       <div class="avatar">${escapeHtml(initials(state.me.character.name))}</div>
       <div style="flex:1;min-width:0">
         <div class="name">${escapeHtml(state.me.character.name)}</div>
-        <div class="status"><span class="pulse-dot" style="display:inline-block;vertical-align:middle;margin-right:4px"></span> Conectado</div>
+        <div class="status">${wsState}</div>
       </div>
       <button class="btn btn--ghost" style="width:auto;padding:8px 12px;font-size:13px" id="disconnect-btn">Salir</button>
     `;
     wrapper.appendChild(header);
 
-    const placeholder = document.createElement("div");
-    placeholder.className = "placeholder";
-    placeholder.innerHTML = `
-      <div class="icon">📨</div>
-      <h2>Esperando al DM...</h2>
-      <p class="muted">Cuando el DM te mande un handout, una nota privada o proyecte un mapa,
-         lo vas a ver acá. En la próxima versión vas a poder tirar dados, ver tu ficha y
-         consultar el mapa proyectado.</p>
-    `;
-    wrapper.appendChild(placeholder);
+    if (state.handouts.length === 0) {
+      const placeholder = document.createElement("div");
+      placeholder.className = "placeholder";
+      placeholder.innerHTML = `
+        <div class="icon">📨</div>
+        <h2>Esperando al DM...</h2>
+        <p class="muted">Cuando el DM te mande un handout o una nota privada,
+           lo vas a ver acá.</p>
+      `;
+      wrapper.appendChild(placeholder);
+    } else {
+      const list = document.createElement("div");
+      list.className = "handouts";
+      // Más reciente arriba.
+      state.handouts.slice().reverse().forEach((h, idx) => {
+        const card = document.createElement("div");
+        card.className = "handout" + (idx === 0 && h.isNew ? " handout--new" : "");
+        const time = new Date(h.sent_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const isPrivate = h.to_token != null;
+        card.innerHTML = `
+          <div class="handout-meta">
+            <span>${isPrivate ? "🔒 Privado" : "📨 Para todos"}</span>
+            <span>${time}</span>
+          </div>
+          ${h.content.title ? `<div class="handout-title">${escapeHtml(h.content.title)}</div>` : ""}
+          <div class="handout-body">${escapeHtml(h.content.body)}</div>
+        `;
+        list.appendChild(card);
+      });
+      wrapper.appendChild(list);
+    }
 
     setTimeout(() => {
       const b = document.getElementById("disconnect-btn");
@@ -346,6 +416,7 @@
         });
         state.me = me;
         state.screen = "session";
+        connectWebSocket();
         render();
         return;
       } catch {
@@ -354,6 +425,68 @@
     }
     state.screen = "connect";
     render();
+  }
+
+  // ── WebSocket ────────────────────────────────────────────────────────────
+  function connectWebSocket() {
+    const token = localStorage.getItem(STORAGE_KEY);
+    if (!token) return;
+    if (ws) { try { ws.close(); } catch {} ws = null; }
+    if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${proto}//${location.host}/ws?token=${encodeURIComponent(token)}`;
+    ws = new WebSocket(url);
+
+    ws.addEventListener("open", () => {
+      state.wsStatus = "connected";
+      render();
+    });
+    ws.addEventListener("close", () => {
+      ws = null;
+      if (state.screen !== "session") return;
+      state.wsStatus = "reconnecting";
+      render();
+      wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+    });
+    ws.addEventListener("error", () => {
+      // close handler hace cleanup.
+    });
+    ws.addEventListener("message", (e) => {
+      try {
+        const evt = JSON.parse(e.data);
+        handleEvent(evt);
+      } catch (err) {
+        console.error("[WS] bad message", err);
+      }
+    });
+  }
+
+  function handleEvent(evt) {
+    if (evt.type === "hello") {
+      // No-op por ahora.
+    } else if (evt.type === "handout") {
+      const h = { ...evt, isNew: true };
+      state.handouts.push(h);
+      try { navigator.vibrate?.(200); } catch {}
+      render();
+      // Quitar el highlight después de unos segundos.
+      setTimeout(() => {
+        const last = state.handouts[state.handouts.length - 1];
+        if (last) last.isNew = false;
+        if (state.screen === "session") render();
+      }, 4000);
+    } else if (evt.type === "kicked") {
+      // El DM nos desconectó.
+      localStorage.removeItem(STORAGE_KEY);
+      state.me = null;
+      state.handouts = [];
+      state.wsStatus = "disconnected";
+      state.screen = "connect";
+      state.error = "El DM te desconectó";
+      render();
+      if (ws) { try { ws.close(); } catch {} ws = null; }
+    }
   }
 
   async function connect(characterId) {
@@ -378,6 +511,8 @@
       localStorage.setItem(STORAGE_KEY, token);
       state.me = { character };
       state.screen = "session";
+      state.handouts = [];
+      connectWebSocket();
       render();
     } catch (e) {
       state.error = e.message === "pin_invalid" ? "PIN incorrecto" :
@@ -395,7 +530,11 @@
       } catch {}
       localStorage.removeItem(STORAGE_KEY);
     }
+    if (ws) { try { ws.close(); } catch {} ws = null; }
+    if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
     state.me = null;
+    state.handouts = [];
+    state.wsStatus = "disconnected";
     state.screen = "connect";
     state.pin = "";
     render();

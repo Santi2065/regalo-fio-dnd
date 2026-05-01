@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, oneshot};
 
 mod server;
 
@@ -70,7 +70,7 @@ pub struct CompanionState {
 /// State leído por el server axum y mutado por los comandos Tauri (excepto
 /// `connections` que el server también muta cuando un player se conecta /
 /// desconecta).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct PublicState {
     pub campaign_name: String,
     pub pin: Option<String>,
@@ -78,6 +78,47 @@ pub struct PublicState {
     /// token → conexión. Generado por POST /api/connect.
     pub connections: HashMap<String, ServerConnection>,
     pub started_at: Option<Instant>,
+    /// Broadcast channel para empujar PlayerEvents a todas las WebSocket
+    /// conexiones activas. Cada handler de /ws subscribe y filtra eventos
+    /// según el player target (broadcast vs privado).
+    pub events: broadcast::Sender<PlayerEvent>,
+}
+
+impl Default for PublicState {
+    fn default() -> Self {
+        let (tx, _rx) = broadcast::channel(64);
+        Self {
+            campaign_name: String::new(),
+            pin: None,
+            characters: Vec::new(),
+            connections: HashMap::new(),
+            started_at: None,
+            events: tx,
+        }
+    }
+}
+
+/// Eventos que el DM puede empujar al celu de los players.
+/// `to_token == None` significa broadcast (todos los conectados); `Some(token)`
+/// es un evento privado para ese player solo.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum PlayerEvent {
+    #[serde(rename = "handout")]
+    Handout {
+        to_token: Option<String>,
+        content: HandoutContent,
+        sent_at: String,
+    },
+    #[serde(rename = "kicked")]
+    Kicked { to_token: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum HandoutContent {
+    #[serde(rename = "text")]
+    Text { title: Option<String>, body: String },
 }
 
 #[derive(Debug, Clone)]
@@ -243,6 +284,35 @@ pub fn companion_kick_player(
     let guard = state.lock().map_err(|e| e.to_string())?;
     let mut public = guard.public_state.lock().map_err(|e| e.to_string())?;
     public.connections.remove(&token);
+    let _ = public.events.send(PlayerEvent::Kicked {
+        to_token: token,
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn companion_send_handout(
+    to_token: Option<String>,
+    title: Option<String>,
+    body: String,
+    state: tauri::State<'_, StdMutex<CompanionState>>,
+) -> Result<(), String> {
+    let guard = state.lock().map_err(|e| e.to_string())?;
+    let public = guard.public_state.lock().map_err(|e| e.to_string())?;
+    if !guard.info.is_some() {
+        return Err("Companion no está activo".to_string());
+    }
+    if let Some(ref t) = to_token {
+        if !public.connections.contains_key(t) {
+            return Err("El player ya no está conectado".to_string());
+        }
+    }
+    let event = PlayerEvent::Handout {
+        to_token,
+        content: HandoutContent::Text { title, body },
+        sent_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let _ = public.events.send(event);
     Ok(())
 }
 
